@@ -327,7 +327,7 @@ export default function GuestManager() {
 
   return (
     <div className="flex min-h-dvh max-h-dvh flex-col overflow-x-hidden bg-linear-to-br from-default-50 to-default-100 py-4 px-4">
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-6">
+      <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-6">
         <header className="flex shrink-0 flex-col items-center justify-center overflow-hidden text-center bg-linear-to-br from-default-50 to-default-100">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             Daftar tamu undangan
@@ -367,8 +367,11 @@ export default function GuestManager() {
             id="add"
             className="flex min-h-0 flex-1 flex-col overflow-auto pt-2"
           >
-            <div className="flex w-full flex-col gap-5">
-              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div className="flex w-full flex-col gap-5 items-center justify-center">
+              <form
+                onSubmit={handleSubmit}
+                className="flex flex-col gap-4 max-w-4xl w-full"
+              >
                 <TextField
                   isRequired
                   fullWidth
@@ -504,9 +507,90 @@ export default function GuestManager() {
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
                 <div className="shrink-0 overflow-hidden bg-linear-to-br from-default-50 to-default-100 pb-2 -mx-4 px-4">
-                  <div className="hidden sm:block">
+                  {/* Mobile: stacked layout */}
+                  <div className="flex flex-col gap-2 sm:hidden">
+                    <div className="flex flex-row items-center gap-2">
+                      <Select
+                        className="min-w-0 flex-1"
+                        placeholder="Lokasi"
+                        variant="secondary"
+                        value={locationFilter === "" ? "all" : locationFilter}
+                        onChange={(key) =>
+                          setLocationFilter(
+                            key === "all" || key === null ? "" : String(key),
+                          )
+                        }
+                      >
+                        <Label className="sr-only">Lokasi</Label>
+                        <Select.Trigger>
+                          <Select.Value />
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            <ListBox.Item id="all" textValue="Semua lokasi">
+                              <span className="text-sm">Semua Lokasi</span>
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                            {uniqueLocations.map((loc) => (
+                              <ListBox.Item key={loc} id={loc} textValue={loc}>
+                                {loc}
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                      <Select
+                        className="min-w-0 flex-1"
+                        placeholder="Tipe undangan"
+                        variant="secondary"
+                        value={
+                          invitationTypeFilter === ""
+                            ? "all"
+                            : invitationTypeFilter
+                        }
+                        onChange={(key) =>
+                          setInvitationTypeFilter(
+                            key === "all" || key === null ? "" : String(key),
+                          )
+                        }
+                      >
+                        <Label className="sr-only">Tipe undangan</Label>
+                        <Select.Trigger>
+                          <Select.Value />
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            <ListBox.Item id="all" textValue="Semua">
+                              <span className="text-sm">Semua Undangan</span>
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                            <ListBox.Item id="physical" textValue="Fisik">
+                              Fisik
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                            <ListBox.Item id="digital" textValue="Digital">
+                              Digital
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                    </div>
+                    <p
+                      className="text-default-500 text-xs text-center"
+                      aria-live="polite"
+                    >
+                      Total: {filteredGuests.length} tamu undangan
+                      {locationFilter ? ` di ${locationFilter}` : ""}
+                    </p>
+                  </div>
+                  {/* Desktop: one line — search + location + type + total */}
+                  <div className="hidden sm:flex sm:flex-row sm:items-center sm:gap-3 sm:flex-wrap">
                     <TextField
-                      fullWidth
+                      className="min-w-0 flex-1 sm:max-w-[220px]"
                       name="search"
                       value={searchQuery}
                       onChange={setSearchQuery}
@@ -514,14 +598,12 @@ export default function GuestManager() {
                       <Label className="sr-only">Cari tamu</Label>
                       <Input
                         variant="secondary"
-                        placeholder="Cari berdasarkan nama, alamat, atau lokasi…"
+                        placeholder="Cari tamu…"
                         className="rounded-full"
                       />
                     </TextField>
-                  </div>
-                  <div className="flex flex-row items-center gap-2">
                     <Select
-                      className="min-w-0 flex-1 sm:flex-none sm:w-40"
+                      className="w-1/2 sm:w-[160px] shrink-0"
                       placeholder="Lokasi"
                       variant="secondary"
                       value={locationFilter === "" ? "all" : locationFilter}
@@ -552,7 +634,7 @@ export default function GuestManager() {
                       </Select.Popover>
                     </Select>
                     <Select
-                      className="min-w-0 flex-1 sm:flex-none sm:w-40"
+                      className="w-1/2 sm:w-[160px] shrink-0"
                       placeholder="Tipe undangan"
                       variant="secondary"
                       value={
@@ -588,14 +670,14 @@ export default function GuestManager() {
                         </ListBox>
                       </Select.Popover>
                     </Select>
+                    <p
+                      className="text-default-500 text-xs shrink-0 sm:ml-auto"
+                      aria-live="polite"
+                    >
+                      Total: {filteredGuests.length} tamu undangan
+                      {locationFilter ? ` di ${locationFilter}` : ""}
+                    </p>
                   </div>
-                  <p
-                    className="pt-4 text-default-500 text-xs w-full text-center"
-                    aria-live="polite"
-                  >
-                    Total: {filteredGuests.length} tamu undangan di{" "}
-                    {locationFilter}
-                  </p>
                 </div>
                 {guests.length === 0 ? (
                   <Card variant="secondary" className="p-6">
@@ -615,33 +697,35 @@ export default function GuestManager() {
                     </Card.Content>
                   </Card>
                 ) : (
-                  <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto">
-                    {filteredGuests.map((g: Guest, index: number) => (
-                      <div
-                        key={g.id}
-                        className="flex flex-row gap-1 rounded-lg border border-default-200/60 bg-default-50/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-                      >
-                        <div className="flex shrink-0 items-center justify-center rounded bg-default-200/80 px-2 py-0.5 text-xs font-medium tabular-nums text-default-600 min-w-7">
-                          {index + 1}
-                        </div>
-                        <div className="min-w-0 flex-1 overflow-hidden">
-                          <p className="truncate text-sm font-medium text-foreground">
-                            {g.name}
-                          </p>
-                          <p className="truncate text-xs text-default-500">
-                            {[
-                              INVITATION_TYPE_LABELS[g.invitationType ?? ""] ??
-                                "—",
-                              g.weddingLocation,
-                              g.address,
-                              formatInvitationTime(g.invitationTime),
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 gap-1">
-                          <div className="sm:hidden">
+                  <>
+                    {/* Mobile: card list */}
+                    <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto sm:hidden">
+                      {filteredGuests.map((g: Guest, index: number) => (
+                        <div
+                          key={g.id}
+                          className="flex flex-row gap-3 rounded-lg border border-default-200/60 bg-default-50/50 px-3 py-2 items-center justify-between"
+                        >
+                          <div className="flex shrink-0 items-center justify-center rounded bg-default-200/80 px-2 py-0.5 text-xs font-medium tabular-nums text-default-600 min-w-7">
+                            {index + 1}
+                          </div>
+                          <div className="min-w-0 flex-1 overflow-hidden">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {g.name}
+                            </p>
+                            <p className="truncate text-xs text-default-500">
+                              {[
+                                INVITATION_TYPE_LABELS[
+                                  g.invitationType ?? ""
+                                ] ?? "—",
+                                g.weddingLocation,
+                                g.address,
+                                formatInvitationTime(g.invitationTime),
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0">
                             <Dropdown>
                               <Button
                                 size="sm"
@@ -674,32 +758,87 @@ export default function GuestManager() {
                               </Dropdown.Popover>
                             </Dropdown>
                           </div>
-                          <div className="hidden gap-1 sm:flex">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              isIconOnly
-                              onPress={() => startEdit(g)}
-                              aria-label="Ubah tamu"
-                              className="text-default-500 hover:text-foreground"
-                            >
-                              <EditIcon />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              isIconOnly
-                              onPress={() => openDeleteConfirm(g)}
-                              aria-label="Hapus tamu"
-                              className="text-default-400 hover:text-red-600"
-                            >
-                              <TrashIcon />
-                            </Button>
-                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                    {/* Desktop: table */}
+                    <div className="hidden sm:block min-h-0 flex-1 overflow-auto rounded-lg border border-default-200/60 bg-default-50/30">
+                      <table className="w-full border-collapse text-sm">
+                        <thead className="sticky top-0 z-1 bg-default-100/95 backdrop-blur border-b border-default-200/60">
+                          <tr>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 w-10">
+                              #
+                            </th>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500">
+                              Nama
+                            </th>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden md:table-cell">
+                              Lokasi
+                            </th>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
+                              Tipe
+                            </th>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
+                              Waktu
+                            </th>
+                            <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-20">
+                              Aksi
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredGuests.map((g: Guest, index: number) => (
+                            <tr
+                              key={g.id}
+                              className="border-b border-default-200/40 last:border-b-0 hover:bg-default-100/50 transition-colors"
+                            >
+                              <td className="py-2 px-3 tabular-nums text-default-600">
+                                {index + 1}
+                              </td>
+                              <td className="py-2 px-3 font-medium text-foreground">
+                                {g.name}
+                              </td>
+                              <td className="py-2 px-3 text-default-600 hidden md:table-cell">
+                                {g.weddingLocation ?? "—"}
+                              </td>
+                              <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
+                                {INVITATION_TYPE_LABELS[
+                                  g.invitationType ?? ""
+                                ] ?? "—"}
+                              </td>
+                              <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
+                                {formatInvitationTime(g.invitationTime)}
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                <div className="flex justify-end gap-0.5">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    isIconOnly
+                                    onPress={() => startEdit(g)}
+                                    aria-label="Ubah tamu"
+                                    className="text-default-500 hover:text-foreground min-w-8 w-8"
+                                  >
+                                    <EditIcon />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    isIconOnly
+                                    onPress={() => openDeleteConfirm(g)}
+                                    aria-label="Hapus tamu"
+                                    className="text-default-400 hover:text-red-600 min-w-8 w-8"
+                                  >
+                                    <TrashIcon />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             )}
