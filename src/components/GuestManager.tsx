@@ -385,7 +385,7 @@ export default function GuestManager() {
                   value={address}
                   onChange={setAddress}
                 >
-                  <Label>Alamat</Label>
+                  <Label>Alamat Tamu</Label>
                   <Input variant="secondary" placeholder="Alamat" />
                 </TextField>
                 <RadioGroup
@@ -394,6 +394,7 @@ export default function GuestManager() {
                   onChange={handleWeddingLocationChange}
                   variant="secondary"
                   orientation="horizontal"
+                  className="mt-2"
                 >
                   <Label>Lokasi resepsi</Label>
                   <Radio value="Semarang">
@@ -588,6 +589,13 @@ export default function GuestManager() {
                       </Select.Popover>
                     </Select>
                   </div>
+                  <p
+                    className="pt-4 text-default-500 text-xs w-full text-center"
+                    aria-live="polite"
+                  >
+                    Total: {filteredGuests.length} tamu undangan di{" "}
+                    {locationFilter}
+                  </p>
                 </div>
                 {guests.length === 0 ? (
                   <Card variant="secondary" className="p-6">
