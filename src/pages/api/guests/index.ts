@@ -1,14 +1,80 @@
 import type { APIRoute } from 'astro';
+import { and, count, eq, sql } from 'drizzle-orm';
 import { db } from '../../../lib/db';
 import { guests } from '../../../lib/db/schema';
 
-export const GET: APIRoute = async () => {
+const DEFAULT_LIMIT = 15;
+const MAX_LIMIT = 100;
+
+function parseNum(value: string | undefined, defaultVal: number): number {
+	if (value === undefined) return defaultVal;
+	const n = parseInt(value, 10);
+	return Number.isNaN(n) || n < 1 ? defaultVal : Math.min(n, MAX_LIMIT);
+}
+
+export const GET: APIRoute = async ({ request }) => {
 	try {
-		const list = await db.select().from(guests);
-		return new Response(JSON.stringify(list), {
-			status: 200,
-			headers: { 'Content-Type': 'application/json' },
-		});
+		const url = new URL(request.url);
+		const page = Math.max(1, parseNum(url.searchParams.get('page') ?? undefined, 1));
+		const limit = parseNum(url.searchParams.get('limit') ?? undefined, DEFAULT_LIMIT);
+		const search = (url.searchParams.get('search') ?? '').trim();
+		const location = (url.searchParams.get('location') ?? '').trim();
+		const invitationType = (url.searchParams.get('invitationType') ?? '').trim();
+
+		const conditions = [];
+		if (search) {
+			const pattern = `%${search}%`;
+			conditions.push(
+				sql`(${guests.name} ILIKE ${pattern} OR COALESCE(${guests.address}, '')::text ILIKE ${pattern} OR COALESCE(${guests.weddingLocation}, '')::text ILIKE ${pattern})`,
+			);
+		}
+		if (location) {
+			conditions.push(eq(guests.weddingLocation, location));
+		}
+		if (invitationType) {
+			conditions.push(eq(guests.invitationType, invitationType));
+		}
+		const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+		const offset = (page - 1) * limit;
+
+		const [filteredCountResult] = await db
+			.select({ count: count() })
+			.from(guests)
+			.where(whereClause);
+		const total = Number(filteredCountResult?.count ?? 0);
+
+		const [totalAllResult] = await db
+			.select({ count: count() })
+			.from(guests);
+		const totalAll = Number(totalAllResult?.count ?? 0);
+
+		const locationRows = await db
+			.select({ weddingLocation: guests.weddingLocation })
+			.from(guests);
+		const uniqueLocations = [
+			...new Set(
+				locationRows
+					.map((r) => r.weddingLocation)
+					.filter((loc): loc is string => loc != null && loc !== ''),
+			),
+		];
+
+		const data = await db
+			.select()
+			.from(guests)
+			.where(whereClause)
+			.orderBy(guests.id)
+			.limit(limit)
+			.offset(offset);
+
+		return new Response(
+			JSON.stringify({ data, total, totalAll, uniqueLocations }),
+			{
+				status: 200,
+				headers: { 'Content-Type': 'application/json' },
+			},
+		);
 	} catch {
 		return new Response(JSON.stringify({ error: 'Failed to fetch guests' }), {
 			status: 500,

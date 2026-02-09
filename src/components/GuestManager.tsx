@@ -106,8 +106,23 @@ const DotsIcon = () => (
   </svg>
 );
 
+const LIST_PAGE_SIZE = 15;
+
+type GuestsResponse = {
+  data: Guest[];
+  total: number;
+  totalAll: number;
+  uniqueLocations: string[];
+};
+
 export default function GuestManager() {
-  const [guests, setGuests] = useState<Guest[]>([]);
+  const [listData, setListData] = useState<Guest[]>([]);
+  const [totalFiltered, setTotalFiltered] = useState(0);
+  const [totalAll, setTotalAll] = useState(0);
+  const [uniqueLocations, setUniqueLocations] = useState<string[]>([]);
+  const [desktopPage, setDesktopPage] = useState(1);
+  const [mobileVisibleCount, setMobileVisibleCount] = useState(LIST_PAGE_SIZE);
+  const [isDesktop, setIsDesktop] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -125,24 +140,66 @@ export default function GuestManager() {
   const [invitationTypeFilter, setInvitationTypeFilter] =
     useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [activeTab, setActiveTab] = useState<string>("add");
 
-  const loadGuests = useCallback(async () => {
-    const res = await fetch("/api/guests");
-    if (!res.ok) throw new Error("Failed to load guests");
-    return res.json() as Promise<Guest[]>;
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(searchQuery), 800);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    const handler = () => setIsDesktop(mq.matches);
+    handler();
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
   }, []);
 
   useEffect(() => {
-    loadGuests()
-      .then(setGuests)
-      .catch(() =>
-        setError(
-          "Tidak dapat memuat tamu. Periksa koneksi Anda dan coba lagi.",
-        ),
-      )
-      .finally(() => setLoading(false));
-  }, [loadGuests]);
+    setDesktopPage(1);
+    setMobileVisibleCount(LIST_PAGE_SIZE);
+  }, [searchDebounced, locationFilter, invitationTypeFilter]);
+
+  const loadList = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const page = isDesktop ? desktopPage : 1;
+    const limit = isDesktop ? LIST_PAGE_SIZE : mobileVisibleCount;
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+    if (searchDebounced.trim()) params.set("search", searchDebounced.trim());
+    if (locationFilter && locationFilter !== "all")
+      params.set("location", locationFilter);
+    if (invitationTypeFilter && invitationTypeFilter !== "all")
+      params.set("invitationType", invitationTypeFilter);
+    try {
+      const res = await fetch(`/api/guests?${params}`);
+      if (!res.ok) throw new Error("Failed to load guests");
+      const json = (await res.json()) as GuestsResponse;
+      setListData(json.data);
+      setTotalFiltered(json.total);
+      setTotalAll(json.totalAll);
+      setUniqueLocations(json.uniqueLocations ?? []);
+    } catch {
+      setError("Tidak dapat memuat tamu. Periksa koneksi Anda dan coba lagi.");
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    isDesktop,
+    desktopPage,
+    mobileVisibleCount,
+    searchDebounced,
+    locationFilter,
+    invitationTypeFilter,
+  ]);
+
+  useEffect(() => {
+    loadList();
+  }, [loadList]);
 
   const resetForm = useCallback(() => {
     setEditingId(null);
@@ -162,34 +219,32 @@ export default function GuestManager() {
     setInvitationType(g.invitationType === "physical" ? "physical" : "digital");
   }, []);
 
-  const uniqueLocations = useMemo(
-    () =>
-      [
-        ...new Set(guests.map((g) => g.weddingLocation).filter(Boolean)),
-      ] as string[],
-    [guests],
-  );
-  const filteredGuests = useMemo(() => {
-    let list =
-      locationFilter === "all" || locationFilter === ""
-        ? guests
-        : guests.filter((g) => (g.weddingLocation ?? "") === locationFilter);
-    if (invitationTypeFilter !== "all" && invitationTypeFilter !== "") {
-      list = list.filter(
-        (g) => (g.invitationType ?? "") === invitationTypeFilter,
-      );
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / LIST_PAGE_SIZE));
+  const hasMoreMobile = listData.length < totalFiltered && !isDesktop;
+
+  const paginationPages = useMemo(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
     }
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      list = list.filter(
-        (g) =>
-          g.name.toLowerCase().includes(q) ||
-          (g.address?.toLowerCase().includes(q) ?? false) ||
-          (g.weddingLocation?.toLowerCase().includes(q) ?? false),
-      );
+    const pages: (number | "ellipsis")[] = [];
+    const alwaysShow = new Set([
+      1,
+      totalPages,
+      desktopPage,
+      desktopPage - 1,
+      desktopPage + 1,
+    ]);
+    const sorted = [...alwaysShow]
+      .filter((p) => p >= 1 && p <= totalPages)
+      .sort((a, b) => a - b);
+    let prev = 0;
+    for (const p of sorted) {
+      if (p - prev > 1) pages.push("ellipsis");
+      pages.push(p);
+      prev = p;
     }
-    return list;
-  }, [guests, locationFilter, invitationTypeFilter, searchQuery]);
+    return pages;
+  }, [totalPages, desktopPage]);
 
   const closeEditModal = useCallback(() => {
     resetForm();
@@ -222,8 +277,7 @@ export default function GuestManager() {
         });
         if (!res.ok) return;
         resetForm();
-        const list = await loadGuests();
-        setGuests(list);
+        await loadList();
       } finally {
         setSubmitting(false);
       }
@@ -236,7 +290,7 @@ export default function GuestManager() {
       invitationTime,
       invitationType,
       resetForm,
-      loadGuests,
+      loadList,
     ],
   );
 
@@ -277,8 +331,7 @@ export default function GuestManager() {
           if (!res.ok) return;
         }
         resetForm();
-        const list = await loadGuests();
-        setGuests(list);
+        await loadList();
       } finally {
         setSubmitting(false);
       }
@@ -291,7 +344,7 @@ export default function GuestManager() {
       invitationTime,
       invitationType,
       resetForm,
-      loadGuests,
+      loadList,
     ],
   );
 
@@ -310,20 +363,13 @@ export default function GuestManager() {
     try {
       const res = await fetch(`/api/guests/${guest.id}`, { method: "DELETE" });
       if (!res.ok) return;
-      const list = await loadGuests();
-      setGuests(list);
+      await loadList();
       if (editingId === guest.id) resetForm();
       closeDeleteConfirm();
     } finally {
       setDeleting(false);
     }
-  }, [
-    deleteConfirmGuest,
-    editingId,
-    loadGuests,
-    resetForm,
-    closeDeleteConfirm,
-  ]);
+  }, [deleteConfirmGuest, editingId, loadList, resetForm, closeDeleteConfirm]);
 
   return (
     <div className="flex min-h-dvh max-h-dvh flex-col overflow-x-hidden bg-linear-to-br from-default-50 to-default-100 py-4 px-4">
@@ -340,7 +386,7 @@ export default function GuestManager() {
             by Haki Studio
           </p>
           <p className="pt-2 text-gray-400 text-xs" aria-live="polite">
-            Total: {guests.length} tamu undangan
+            Total: {totalAll} tamu undangan
           </p>
         </header>
 
@@ -488,7 +534,7 @@ export default function GuestManager() {
           </Tabs.Panel>
           <Tabs.Panel
             id="list"
-            className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2 pb-16 sm:pb-6"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2 pb-16 sm:pb-2"
           >
             {error ? (
               <Card
@@ -583,8 +629,10 @@ export default function GuestManager() {
                       className="text-default-500 text-xs text-center"
                       aria-live="polite"
                     >
-                      Total: {filteredGuests.length} tamu undangan
-                      {locationFilter ? ` di ${locationFilter}` : ""}
+                      Total: {totalFiltered} tamu undangan
+                      {locationFilter && locationFilter !== "all"
+                        ? ` di ${locationFilter}`
+                        : ""}
                     </p>
                   </div>
                   {/* Desktop: one line — search + location + type + total */}
@@ -674,12 +722,14 @@ export default function GuestManager() {
                       className="text-default-500 text-xs shrink-0 sm:ml-auto"
                       aria-live="polite"
                     >
-                      Total: {filteredGuests.length} tamu undangan
-                      {locationFilter ? ` di ${locationFilter}` : ""}
+                      Total: {totalFiltered} tamu undangan
+                      {locationFilter && locationFilter !== "all"
+                        ? ` di ${locationFilter}`
+                        : ""}
                     </p>
                   </div>
                 </div>
-                {guests.length === 0 ? (
+                {totalAll === 0 ? (
                   <Card variant="secondary" className="p-6">
                     <Card.Content>
                       <p className="text-default-500">
@@ -687,7 +737,7 @@ export default function GuestManager() {
                       </p>
                     </Card.Content>
                   </Card>
-                ) : filteredGuests.length === 0 ? (
+                ) : listData.length === 0 ? (
                   <Card variant="secondary" className="p-6">
                     <Card.Content>
                       <p className="text-default-500">
@@ -700,7 +750,7 @@ export default function GuestManager() {
                   <>
                     {/* Mobile: card list */}
                     <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto sm:hidden">
-                      {filteredGuests.map((g: Guest, index: number) => (
+                      {listData.map((g: Guest, index: number) => (
                         <div
                           key={g.id}
                           className="flex flex-row gap-3 rounded-lg border border-default-200/60 bg-default-50/50 px-3 py-2 items-center justify-between"
@@ -760,6 +810,19 @@ export default function GuestManager() {
                           </div>
                         </div>
                       ))}
+                      {hasMoreMobile ? (
+                        <div className="flex justify-center py-3">
+                          <Button
+                            variant="secondary"
+                            onPress={() =>
+                              setMobileVisibleCount((c) => c + LIST_PAGE_SIZE)
+                            }
+                            className="min-w-[140px]"
+                          >
+                            Lihat lebih banyak
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                     {/* Desktop: table */}
                     <div className="hidden sm:block min-h-0 flex-1 overflow-auto rounded-lg border border-default-200/60 bg-default-50/30">
@@ -787,13 +850,13 @@ export default function GuestManager() {
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredGuests.map((g: Guest, index: number) => (
+                          {listData.map((g: Guest, index: number) => (
                             <tr
                               key={g.id}
                               className="border-b border-default-200/40 last:border-b-0 hover:bg-default-100/50 transition-colors"
                             >
                               <td className="py-2 px-3 tabular-nums text-default-600">
-                                {index + 1}
+                                {(desktopPage - 1) * LIST_PAGE_SIZE + index + 1}
                               </td>
                               <td className="py-2 px-3 font-medium text-foreground">
                                 {g.name}
@@ -838,6 +901,79 @@ export default function GuestManager() {
                         </tbody>
                       </table>
                     </div>
+                    {/* Desktop: pagination — compact pill, matches reference */}
+                    {isDesktop && totalPages > 1 ? (
+                      <div className="hidden sm:flex shrink-0 items-center justify-center py-2">
+                        <nav
+                          className="inline-flex h-8 items-center overflow-hidden rounded-full bg-default-100 shadow-md"
+                          aria-label="Navigasi halaman"
+                        >
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            isIconOnly
+                            className="h-8 min-w-8 rounded-l-full rounded-r-none text-default-400 hover:bg-default-200/40 hover:text-foreground disabled:opacity-40"
+                            isDisabled={desktopPage <= 1}
+                            onPress={() =>
+                              setDesktopPage((p) => Math.max(1, p - 1))
+                            }
+                            aria-label="Halaman sebelumnya"
+                          >
+                            <span className="text-base leading-none" aria-hidden>‹</span>
+                          </Button>
+                          <div className="flex h-8 items-center">
+                            {paginationPages.map((item, idx) =>
+                              item === "ellipsis" ? (
+                                <span
+                                  key={`ellipsis-${idx}`}
+                                  className="flex h-8 min-w-8 items-center justify-center text-xs text-default-600"
+                                  aria-hidden
+                                >
+                                  …
+                                </span>
+                              ) : (
+                                <Button
+                                  key={item}
+                                  size="sm"
+                                  variant={
+                                    desktopPage === item ? "primary" : "ghost"
+                                  }
+                                  className={
+                                    desktopPage === item
+                                      ? "h-8 min-w-8 rounded-md font-medium text-primary-foreground"
+                                      : "h-8 min-w-8 rounded-none text-xs text-default-700 hover:bg-default-200/40"
+                                  }
+                                  onPress={() => setDesktopPage(item)}
+                                  aria-label={
+                                    desktopPage === item
+                                      ? `Halaman ${item}, halaman saat ini`
+                                      : `Halaman ${item}`
+                                  }
+                                  aria-current={
+                                    desktopPage === item ? "page" : undefined
+                                  }
+                                >
+                                  {item}
+                                </Button>
+                              ),
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            isIconOnly
+                            className="h-8 min-w-8 rounded-r-full rounded-l-none text-default-400 hover:bg-default-200/40 hover:text-foreground disabled:opacity-40"
+                            isDisabled={desktopPage >= totalPages}
+                            onPress={() =>
+                              setDesktopPage((p) => Math.min(totalPages, p + 1))
+                            }
+                            aria-label="Halaman berikutnya"
+                          >
+                            <span className="text-base leading-none" aria-hidden>›</span>
+                          </Button>
+                        </nav>
+                      </div>
+                    ) : null}
                   </>
                 )}
               </div>
