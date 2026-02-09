@@ -6,6 +6,7 @@ export const guests = pgTable('guests', {
 	address: text('address'),
 	weddingLocation: text('wedding_location'),
 	invitationTime: timestamp('invitation_time', { withTimezone: true }),
+	invitationType: text('invitation_type'), // 'physical' | 'digital'
 });
 
 export type Guest = typeof guests.$inferSelect;

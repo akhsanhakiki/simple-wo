@@ -24,7 +24,7 @@ export const POST: APIRoute = async ({ request }) => {
 			headers: { 'Content-Type': 'application/json' },
 		});
 	}
-	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string };
+	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string };
 	try {
 		body = await request.json();
 	} catch {
@@ -42,6 +42,7 @@ export const POST: APIRoute = async ({ request }) => {
 	}
 	const address = typeof body.address === 'string' ? body.address.trim() : null;
 	const weddingLocation = typeof body.weddingLocation === 'string' ? body.weddingLocation.trim() || null : null;
+	const invitationType = body.invitationType === 'physical' || body.invitationType === 'digital' ? body.invitationType : null;
 	let invitationTime: Date | null = null;
 	if (body.invitationTime != null) {
 		const parsed = new Date(body.invitationTime);
@@ -50,7 +51,7 @@ export const POST: APIRoute = async ({ request }) => {
 	try {
 		const [created] = await db
 			.insert(guests)
-			.values({ name, address, weddingLocation, invitationTime })
+			.values({ name, address, weddingLocation, invitationTime, invitationType })
 			.returning();
 		return new Response(JSON.stringify(created), {
 			status: 201,

@@ -6,6 +6,8 @@ import {
   Label,
   ListBox,
   Modal,
+  Radio,
+  RadioGroup,
   Select,
   Surface,
   TextField,
@@ -14,12 +16,18 @@ import {
 } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+const INVITATION_TYPE_LABELS: Record<string, string> = {
+  physical: "Fisik",
+  digital: "Digital",
+};
+
 type Guest = {
   id: number;
   name: string;
   address: string | null;
   weddingLocation: string | null;
   invitationTime: string | null;
+  invitationType: string | null;
 };
 
 function formatInvitationTime(iso: string | null): string {
@@ -107,7 +115,10 @@ export default function GuestManager() {
   const [address, setAddress] = useState("");
   const [weddingLocation, setWeddingLocation] = useState("");
   const [invitationTime, setInvitationTime] = useState("");
+  const [invitationType, setInvitationType] = useState<string>("digital");
   const [locationFilter, setLocationFilter] = useState<string>("all");
+  const [invitationTypeFilter, setInvitationTypeFilter] =
+    useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<string>("add");
 
@@ -121,7 +132,9 @@ export default function GuestManager() {
     loadGuests()
       .then(setGuests)
       .catch(() =>
-        setError("Could not load guests. Check your connection and try again."),
+        setError(
+          "Tidak dapat memuat tamu. Periksa koneksi Anda dan coba lagi.",
+        ),
       )
       .finally(() => setLoading(false));
   }, [loadGuests]);
@@ -132,6 +145,7 @@ export default function GuestManager() {
     setAddress("");
     setWeddingLocation("");
     setInvitationTime("");
+    setInvitationType("digital");
   }, []);
 
   const startEdit = useCallback((g: Guest) => {
@@ -140,6 +154,7 @@ export default function GuestManager() {
     setAddress(g.address ?? "");
     setWeddingLocation(g.weddingLocation ?? "");
     setInvitationTime(toDatetimeLocal(g.invitationTime));
+    setInvitationType(g.invitationType === "physical" ? "physical" : "digital");
   }, []);
 
   const uniqueLocations = useMemo(
@@ -154,6 +169,11 @@ export default function GuestManager() {
       locationFilter === "all" || locationFilter === ""
         ? guests
         : guests.filter((g) => (g.weddingLocation ?? "") === locationFilter);
+    if (invitationTypeFilter !== "all" && invitationTypeFilter !== "") {
+      list = list.filter(
+        (g) => (g.invitationType ?? "") === invitationTypeFilter,
+      );
+    }
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       list = list.filter(
@@ -164,7 +184,7 @@ export default function GuestManager() {
       );
     }
     return list;
-  }, [guests, locationFilter, searchQuery]);
+  }, [guests, locationFilter, invitationTypeFilter, searchQuery]);
 
   const closeEditModal = useCallback(() => {
     resetForm();
@@ -185,6 +205,8 @@ export default function GuestManager() {
             address: address.trim() || null,
             weddingLocation: weddingLocation.trim() || null,
             invitationTime: invitationTime || null,
+            invitationType:
+              invitationType === "physical" ? "physical" : "digital",
           }),
         });
         if (!res.ok) return;
@@ -201,6 +223,7 @@ export default function GuestManager() {
       address,
       weddingLocation,
       invitationTime,
+      invitationType,
       resetForm,
       loadGuests,
     ],
@@ -222,6 +245,8 @@ export default function GuestManager() {
               address: address.trim() || null,
               weddingLocation: weddingLocation.trim() || null,
               invitationTime: invitationTime || null,
+              invitationType:
+                invitationType === "physical" ? "physical" : "digital",
             }),
           });
           if (!res.ok) return;
@@ -234,6 +259,8 @@ export default function GuestManager() {
               address: address.trim() || null,
               weddingLocation: weddingLocation.trim() || null,
               invitationTime: invitationTime || null,
+              invitationType:
+                invitationType === "physical" ? "physical" : "digital",
             }),
           });
           if (!res.ok) return;
@@ -251,6 +278,7 @@ export default function GuestManager() {
       address,
       weddingLocation,
       invitationTime,
+      invitationType,
       resetForm,
       loadGuests,
     ],
@@ -287,36 +315,45 @@ export default function GuestManager() {
   ]);
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-default-50 to-default-100 py-8 px-4">
-      <div className="mx-auto max-w-3xl space-y-6">
-        <header className="text-center">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Wedding guest list
+    <div className="flex min-h-dvh max-h-dvh flex-col overflow-x-hidden bg-linear-to-br from-default-50 to-default-100 py-4 px-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-6">
+        <header className="flex shrink-0 flex-col items-center justify-center overflow-hidden text-center bg-linear-to-br from-default-50 to-default-100 pt-4 pb-2 -mx-4 px-4">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Daftar tamu undangan
           </h1>
-          <p className="mt-1 text-default-500">Manage your invited guests</p>
+          <p className="mt-1 text-default-500 text-xs">
+            Made with{" "}
+            <span role="img" aria-label="heart">
+              ❤️
+            </span>{" "}
+            by Haki Studio
+          </p>
         </header>
 
         <Tabs
-          className="w-full"
+          className="flex min-h-0 w-full flex-1 flex-col"
           selectedKey={activeTab}
           onSelectionChange={(key) =>
             setActiveTab(key === null ? "add" : String(key))
           }
         >
-          <Tabs.ListContainer>
-            <Tabs.List aria-label="Guest management">
+          <Tabs.ListContainer className="shrink-0 overflow-hidden bg-linear-to-br from-default-50 to-default-100 pb-2 -mx-4 px-4">
+            <Tabs.List aria-label="Kelola tamu">
               <Tabs.Tab id="add">
-                Add guest
+                Tambah tamu
                 <Tabs.Indicator />
               </Tabs.Tab>
               <Tabs.Tab id="list">
-                Invited people
+                Tamu undangan
                 <Tabs.Indicator />
               </Tabs.Tab>
             </Tabs.List>
           </Tabs.ListContainer>
-          <Tabs.Panel id="add" className="pt-6">
-            <Surface className="flex w-full flex-col gap-5 rounded-3xl p-6 shadow-sm">
+          <Tabs.Panel
+            id="add"
+            className="flex min-h-0 flex-1 flex-col overflow-auto pt-2"
+          >
+            <div className="flex w-full flex-col gap-5">
               <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <TextField
                   isRequired
@@ -325,8 +362,8 @@ export default function GuestManager() {
                   value={name}
                   onChange={setName}
                 >
-                  <Label>Name</Label>
-                  <Input variant="secondary" placeholder="Guest name" />
+                  <Label>Nama</Label>
+                  <Input variant="secondary" placeholder="Nama tamu" />
                 </TextField>
                 <TextField
                   fullWidth
@@ -334,28 +371,41 @@ export default function GuestManager() {
                   value={address}
                   onChange={setAddress}
                 >
-                  <Label>Address</Label>
-                  <Input variant="secondary" placeholder="Address" />
+                  <Label>Alamat</Label>
+                  <Input variant="secondary" placeholder="Alamat" />
                 </TextField>
-                <TextField
-                  fullWidth
+                <RadioGroup
                   name="weddingLocation"
                   value={weddingLocation}
                   onChange={setWeddingLocation}
+                  variant="secondary"
+                  orientation="horizontal"
                 >
-                  <Label>Wedding location</Label>
-                  <Input
-                    variant="secondary"
-                    placeholder="e.g. Grand Ballroom"
-                  />
-                </TextField>
+                  <Label>Lokasi resepsi</Label>
+                  <Radio value="Semarang">
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    <Radio.Content>
+                      <Label>Semarang</Label>
+                    </Radio.Content>
+                  </Radio>
+                  <Radio value="Magetan">
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    <Radio.Content>
+                      <Label>Magetan</Label>
+                    </Radio.Content>
+                  </Radio>
+                </RadioGroup>
                 <TextField
                   fullWidth
                   name="invitationTime"
                   value={invitationTime}
                   onChange={setInvitationTime}
                 >
-                  <Label>Invitation time</Label>
+                  <Label>Waktu undangan</Label>
                   <Input
                     variant="secondary"
                     type="datetime-local"
@@ -363,20 +413,46 @@ export default function GuestManager() {
                     onChange={(e) => setInvitationTime(e.target.value)}
                   />
                 </TextField>
-                <div className="flex flex-wrap gap-3 pt-2">
+                <RadioGroup
+                  name="invitationType"
+                  value={invitationType}
+                  onChange={setInvitationType}
+                  variant="secondary"
+                  orientation="horizontal"
+                >
+                  <Label>Tipe undangan</Label>
+                  <Radio value="digital">
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    <Radio.Content>
+                      <Label>Digital</Label>
+                    </Radio.Content>
+                  </Radio>
+                  <Radio value="physical">
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    <Radio.Content>
+                      <Label>Fisik</Label>
+                    </Radio.Content>
+                  </Radio>
+                </RadioGroup>
+                <div className="flex flex-col gap-3 pt-2 w-full">
                   <Button
                     type="submit"
                     isPending={submitting}
                     variant="primary"
+                    className="w-full"
                   >
                     {({ isPending }) =>
                       isPending
                         ? editingId
-                          ? "Saving…"
-                          : "Adding…"
+                          ? "Menyimpan…"
+                          : "Menambahkan…"
                         : editingId
-                          ? "Save"
-                          : "Add guest"
+                          ? "Simpan"
+                          : "Tambah tamu"
                     }
                   </Button>
                   {editingId ? (
@@ -385,14 +461,17 @@ export default function GuestManager() {
                       variant="secondary"
                       onPress={resetForm}
                     >
-                      Cancel
+                      Batal
                     </Button>
                   ) : null}
                 </div>
               </form>
-            </Surface>
+            </div>
           </Tabs.Panel>
-          <Tabs.Panel id="list" className="pt-6 pb-24 sm:pb-6">
+          <Tabs.Panel
+            id="list"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2 pb-16 sm:pb-6"
+          >
             {error ? (
               <Card
                 className="border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950"
@@ -405,152 +484,201 @@ export default function GuestManager() {
             ) : loading ? (
               <div className="flex items-center gap-2 text-default-500">
                 <Spinner size="sm" />
-                <span>Loading…</span>
+                <span>Memuat…</span>
               </div>
-            ) : guests.length === 0 ? (
-              <Card variant="secondary" className="p-6">
-                <Card.Content>
-                  <p className="text-default-500">
-                    No guests yet. Add one in the first tab.
-                  </p>
-                </Card.Content>
-              </Card>
-            ) : filteredGuests.length === 0 ? (
-              <Card variant="secondary" className="p-6">
-                <Card.Content>
-                  <p className="text-default-500">
-                    No guests match your search or filter. Try different terms
-                    or location.
-                  </p>
-                </Card.Content>
-              </Card>
             ) : (
-              <div className="flex flex-col gap-3">
-                <div className="hidden sm:block">
-                  <TextField
-                    fullWidth
-                    name="search"
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                  >
-                    <Label className="sr-only">Search guests</Label>
-                    <Input
-                      variant="secondary"
-                      placeholder="Search by name, address, or location…"
-                      className="rounded-full"
-                    />
-                  </TextField>
-                </div>
-                <Select
-                  className="w-full sm:w-48"
-                  placeholder="All locations"
-                  value={locationFilter === "" ? "all" : locationFilter}
-                  onChange={(key) =>
-                    setLocationFilter(
-                      key === "all" || key === null ? "" : String(key),
-                    )
-                  }
-                >
-                  <Label>Filter by location</Label>
-                  <Select.Trigger>
-                    <Select.Value />
-                    <Select.Indicator />
-                  </Select.Trigger>
-                  <Select.Popover>
-                    <ListBox>
-                      <ListBox.Item id="all" textValue="All locations">
-                        All locations
-                        <ListBox.ItemIndicator />
-                      </ListBox.Item>
-                      {uniqueLocations.map((loc) => (
-                        <ListBox.Item key={loc} id={loc} textValue={loc}>
-                          {loc}
-                          <ListBox.ItemIndicator />
-                        </ListBox.Item>
-                      ))}
-                    </ListBox>
-                  </Select.Popover>
-                </Select>
-                <div className="flex flex-col gap-1">
-                  {filteredGuests.map((g: Guest) => (
-                    <div
-                      key={g.id}
-                      className="flex flex-row gap-1 rounded-lg border border-default-200/60 bg-default-50/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                <div className="shrink-0 overflow-hidden bg-linear-to-br from-default-50 to-default-100 pb-2 -mx-4 px-4">
+                  <div className="hidden sm:block">
+                    <TextField
+                      fullWidth
+                      name="search"
+                      value={searchQuery}
+                      onChange={setSearchQuery}
                     >
-                      <div className="min-w-0 flex-1 overflow-hidden">
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {g.name}
-                        </p>
-                        <p className="truncate text-xs text-default-500">
-                          {[
-                            g.weddingLocation,
-                            g.address,
-                            formatInvitationTime(g.invitationTime),
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        <div className="sm:hidden">
-                          <Dropdown>
+                      <Label className="sr-only">Cari tamu</Label>
+                      <Input
+                        variant="secondary"
+                        placeholder="Cari berdasarkan nama, alamat, atau lokasi…"
+                        className="rounded-full"
+                      />
+                    </TextField>
+                  </div>
+                  <div className="flex flex-row items-center gap-2">
+                    <Select
+                      className="min-w-0 flex-1 sm:flex-none sm:w-40"
+                      placeholder="Lokasi"
+                      variant="secondary"
+                      value={locationFilter === "" ? "all" : locationFilter}
+                      onChange={(key) =>
+                        setLocationFilter(
+                          key === "all" || key === null ? "" : String(key),
+                        )
+                      }
+                    >
+                      <Label className="sr-only">Lokasi</Label>
+                      <Select.Trigger>
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          <ListBox.Item id="all" textValue="Semua lokasi">
+                            <span className="text-sm">Semua Lokasi</span>
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                          {uniqueLocations.map((loc) => (
+                            <ListBox.Item key={loc} id={loc} textValue={loc}>
+                              {loc}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                    <Select
+                      className="min-w-0 flex-1 sm:flex-none sm:w-40"
+                      placeholder="Tipe undangan"
+                      variant="secondary"
+                      value={
+                        invitationTypeFilter === ""
+                          ? "all"
+                          : invitationTypeFilter
+                      }
+                      onChange={(key) =>
+                        setInvitationTypeFilter(
+                          key === "all" || key === null ? "" : String(key),
+                        )
+                      }
+                    >
+                      <Label className="sr-only">Tipe undangan</Label>
+                      <Select.Trigger>
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          <ListBox.Item id="all" textValue="Semua">
+                            <span className="text-sm">Semua Undangan</span>
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                          <ListBox.Item id="physical" textValue="Fisik">
+                            Fisik
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                          <ListBox.Item id="digital" textValue="Digital">
+                            Digital
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                  </div>
+                </div>
+                {guests.length === 0 ? (
+                  <Card variant="secondary" className="p-6">
+                    <Card.Content>
+                      <p className="text-default-500">
+                        Belum ada tamu. Tambahkan dari tab pertama.
+                      </p>
+                    </Card.Content>
+                  </Card>
+                ) : filteredGuests.length === 0 ? (
+                  <Card variant="secondary" className="p-6">
+                    <Card.Content>
+                      <p className="text-default-500">
+                        Tidak ada tamu yang cocok dengan pencarian atau filter.
+                        Coba kata atau lokasi lain.
+                      </p>
+                    </Card.Content>
+                  </Card>
+                ) : (
+                  <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-auto">
+                    {filteredGuests.map((g: Guest, index: number) => (
+                      <div
+                        key={g.id}
+                        className="flex flex-row gap-1 rounded-lg border border-default-200/60 bg-default-50/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                      >
+                        <div className="flex shrink-0 items-center justify-center rounded bg-default-200/80 px-2 py-0.5 text-xs font-medium tabular-nums text-default-600 min-w-7">
+                          {index + 1}
+                        </div>
+                        <div className="min-w-0 flex-1 overflow-hidden">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {g.name}
+                          </p>
+                          <p className="truncate text-xs text-default-500">
+                            {[
+                              INVITATION_TYPE_LABELS[g.invitationType ?? ""] ??
+                                "—",
+                              g.weddingLocation,
+                              g.address,
+                              formatInvitationTime(g.invitationTime),
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <div className="sm:hidden">
+                            <Dropdown>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                isIconOnly
+                                aria-label="Aksi"
+                                className="text-default-500"
+                              >
+                                <DotsIcon />
+                              </Button>
+                              <Dropdown.Popover className="min-w-[140px]">
+                                <Dropdown.Menu
+                                  onAction={(key) => {
+                                    if (key === "edit") startEdit(g);
+                                    else if (key === "delete")
+                                      openDeleteConfirm(g);
+                                  }}
+                                >
+                                  <Dropdown.Item id="edit" textValue="Ubah">
+                                    <Label>Ubah</Label>
+                                  </Dropdown.Item>
+                                  <Dropdown.Item
+                                    id="delete"
+                                    textValue="Hapus"
+                                    variant="danger"
+                                  >
+                                    <Label>Hapus</Label>
+                                  </Dropdown.Item>
+                                </Dropdown.Menu>
+                              </Dropdown.Popover>
+                            </Dropdown>
+                          </div>
+                          <div className="hidden gap-1 sm:flex">
                             <Button
                               size="sm"
                               variant="ghost"
                               isIconOnly
-                              aria-label="Actions"
-                              className="text-default-500"
+                              onPress={() => startEdit(g)}
+                              aria-label="Ubah tamu"
+                              className="text-default-500 hover:text-foreground"
                             >
-                              <DotsIcon />
+                              <EditIcon />
                             </Button>
-                            <Dropdown.Popover className="min-w-[140px]">
-                              <Dropdown.Menu
-                                onAction={(key) => {
-                                  if (key === "edit") startEdit(g);
-                                  else if (key === "delete")
-                                    openDeleteConfirm(g);
-                                }}
-                              >
-                                <Dropdown.Item id="edit" textValue="Edit">
-                                  <Label>Edit</Label>
-                                </Dropdown.Item>
-                                <Dropdown.Item
-                                  id="delete"
-                                  textValue="Delete"
-                                  variant="danger"
-                                >
-                                  <Label>Delete</Label>
-                                </Dropdown.Item>
-                              </Dropdown.Menu>
-                            </Dropdown.Popover>
-                          </Dropdown>
-                        </div>
-                        <div className="hidden gap-1 sm:flex">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            isIconOnly
-                            onPress={() => startEdit(g)}
-                            aria-label="Edit guest"
-                            className="text-default-500 hover:text-foreground"
-                          >
-                            <EditIcon />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            isIconOnly
-                            onPress={() => openDeleteConfirm(g)}
-                            aria-label="Delete guest"
-                            className="text-default-400 hover:text-red-600"
-                          >
-                            <TrashIcon />
-                          </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              isIconOnly
+                              onPress={() => openDeleteConfirm(g)}
+                              aria-label="Hapus tamu"
+                              className="text-default-400 hover:text-red-600"
+                            >
+                              <TrashIcon />
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </Tabs.Panel>
@@ -564,10 +692,10 @@ export default function GuestManager() {
               value={searchQuery}
               onChange={setSearchQuery}
             >
-              <Label className="sr-only">Search guests</Label>
+              <Label className="sr-only">Cari tamu</Label>
               <Input
                 variant="secondary"
-                placeholder="Search by name, address, or location…"
+                placeholder="Cari berdasarkan nama, alamat, atau lokasi…"
                 className="rounded-full border border-default-200 shadow-none"
               />
             </TextField>
@@ -583,10 +711,10 @@ export default function GuestManager() {
               <Modal.Dialog className="sm:max-w-md">
                 <Modal.CloseTrigger />
                 <Modal.Header>
-                  <Modal.Heading>Edit guest</Modal.Heading>
+                  <Modal.Heading>Ubah tamu</Modal.Heading>
                 </Modal.Header>
                 <form onSubmit={handleEditSubmit}>
-                  <Modal.Body className="flex flex-col gap-4">
+                  <Modal.Body className="flex flex-col gap-4 px-1 pt-4">
                     <TextField
                       isRequired
                       fullWidth
@@ -594,8 +722,8 @@ export default function GuestManager() {
                       value={name}
                       onChange={setName}
                     >
-                      <Label>Name</Label>
-                      <Input variant="secondary" placeholder="Guest name" />
+                      <Label>Nama</Label>
+                      <Input variant="secondary" placeholder="Nama tamu" />
                     </TextField>
                     <TextField
                       fullWidth
@@ -603,28 +731,41 @@ export default function GuestManager() {
                       value={address}
                       onChange={setAddress}
                     >
-                      <Label>Address</Label>
-                      <Input variant="secondary" placeholder="Address" />
+                      <Label>Alamat</Label>
+                      <Input variant="secondary" placeholder="Alamat" />
                     </TextField>
-                    <TextField
-                      fullWidth
+                    <RadioGroup
                       name="edit-weddingLocation"
                       value={weddingLocation}
                       onChange={setWeddingLocation}
+                      variant="secondary"
+                      orientation="horizontal"
                     >
-                      <Label>Wedding location</Label>
-                      <Input
-                        variant="secondary"
-                        placeholder="e.g. Grand Ballroom"
-                      />
-                    </TextField>
+                      <Label>Lokasi resepsi</Label>
+                      <Radio value="Semarang">
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        <Radio.Content>
+                          <Label>Semarang</Label>
+                        </Radio.Content>
+                      </Radio>
+                      <Radio value="Magetan">
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        <Radio.Content>
+                          <Label>Magetan</Label>
+                        </Radio.Content>
+                      </Radio>
+                    </RadioGroup>
                     <TextField
                       fullWidth
                       name="edit-invitationTime"
                       value={invitationTime}
                       onChange={setInvitationTime}
                     >
-                      <Label>Invitation time</Label>
+                      <Label>Waktu undangan</Label>
                       <Input
                         variant="secondary"
                         type="datetime-local"
@@ -632,6 +773,31 @@ export default function GuestManager() {
                         onChange={(e) => setInvitationTime(e.target.value)}
                       />
                     </TextField>
+                    <RadioGroup
+                      name="edit-invitationType"
+                      value={invitationType}
+                      onChange={setInvitationType}
+                      variant="secondary"
+                      orientation="horizontal"
+                    >
+                      <Label>Tipe undangan</Label>
+                      <Radio value="digital">
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        <Radio.Content>
+                          <Label>Digital</Label>
+                        </Radio.Content>
+                      </Radio>
+                      <Radio value="physical">
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        <Radio.Content>
+                          <Label>Fisik</Label>
+                        </Radio.Content>
+                      </Radio>
+                    </RadioGroup>
                   </Modal.Body>
                   <Modal.Footer className="flex gap-2">
                     <Button
@@ -639,14 +805,14 @@ export default function GuestManager() {
                       variant="secondary"
                       onPress={closeEditModal}
                     >
-                      Cancel
+                      Batal
                     </Button>
                     <Button
                       type="submit"
                       isPending={submitting}
                       variant="primary"
                     >
-                      {({ isPending }) => (isPending ? "Saving…" : "Save")}
+                      {({ isPending }) => (isPending ? "Menyimpan…" : "Simpan")}
                     </Button>
                   </Modal.Footer>
                 </form>
@@ -664,27 +830,27 @@ export default function GuestManager() {
               <Modal.Dialog className="sm:max-w-sm">
                 <Modal.CloseTrigger />
                 <Modal.Header>
-                  <Modal.Heading>Remove guest</Modal.Heading>
+                  <Modal.Heading>Hapus tamu</Modal.Heading>
                 </Modal.Header>
                 <Modal.Body>
                   <p className="text-default-600">
-                    Remove{" "}
+                    Hapus{" "}
                     <span className="font-medium text-foreground">
                       {deleteConfirmGuest?.name}
                     </span>{" "}
-                    from the list? This cannot be undone.
+                    dari daftar? Tindakan ini tidak dapat dibatalkan.
                   </p>
                 </Modal.Body>
                 <Modal.Footer className="flex gap-2">
                   <Button variant="secondary" onPress={closeDeleteConfirm}>
-                    Cancel
+                    Batal
                   </Button>
                   <Button
                     variant="danger"
                     isPending={deleting}
                     onPress={confirmDelete}
                   >
-                    {({ isPending }) => (isPending ? "Removing…" : "Remove")}
+                    {({ isPending }) => (isPending ? "Menghapus…" : "Hapus")}
                   </Button>
                 </Modal.Footer>
               </Modal.Dialog>

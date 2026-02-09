@@ -50,7 +50,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
 			headers: { 'Content-Type': 'application/json' },
 		});
 	}
-	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string };
+	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string };
 	try {
 		body = await request.json();
 	} catch {
@@ -79,11 +79,15 @@ export const PUT: APIRoute = async ({ params, request }) => {
 			invitationTime = Number.isNaN(parsed.getTime()) ? undefined : parsed;
 		}
 	}
-	const updates: { name?: string; address?: string | null; weddingLocation?: string | null; invitationTime?: Date | null } = {};
+	const invitationType = body.invitationType !== undefined
+		? (body.invitationType === 'physical' || body.invitationType === 'digital' ? body.invitationType : null)
+		: undefined;
+	const updates: { name?: string; address?: string | null; weddingLocation?: string | null; invitationTime?: Date | null; invitationType?: string | null } = {};
 	if (name !== undefined) updates.name = name;
 	if (address !== undefined) updates.address = address;
 	if (weddingLocation !== undefined) updates.weddingLocation = weddingLocation;
 	if (invitationTime !== undefined) updates.invitationTime = invitationTime;
+	if (invitationType !== undefined) updates.invitationType = invitationType;
 	if (Object.keys(updates).length === 0) {
 		const [existing] = await db.select().from(guests).where(eq(guests.id, id));
 		if (!existing) {
