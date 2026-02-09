@@ -11,6 +11,7 @@
 		"db:migrate": "drizzle-kit migrate"
 	},
 	"dependencies": {
+		"@astrojs/netlify": "^6.6.4",
 		"@astrojs/node": "^9.2.0",
 		"@heroui/react": "beta",
 		"@heroui/styles": "beta",

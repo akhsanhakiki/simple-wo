@@ -41,6 +41,19 @@ All commands are run from the root of the project, from a terminal:
 | `pnpm astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `pnpm astro -- --help` | Get help using the Astro CLI                     |
 
+## Deploy to Netlify
+
+This app is configured for [Netlify](https://www.netlify.com/). To deploy:
+
+1. **Push your repo** to GitHub/GitLab/Bitbucket and connect it in the [Netlify dashboard](https://app.netlify.com/).
+2. **Build settings** (usually auto-detected via `netlify.toml`):
+   - **Build command:** `pnpm run build`
+   - **Publish directory:** `dist`
+3. **Environment variable:** In Netlify → Site settings → Environment variables, add:
+   - `DATABASE_URL` = your Neon (or other) database connection string
+
+Then trigger a deploy. Your API routes (e.g. `/api/guests`) will run as Netlify Functions.
+
 ## 👀 Want to learn more?
 
 Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).

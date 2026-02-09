@@ -1,0 +1,12 @@
+# Netlify build configuration for Astro (server mode + API routes)
+# https://docs.netlify.com/configure-builds/file-based-configuration/
+
+[build]
+  command = "pnpm run build"
+  publish = "dist"
+
+# Required: set DATABASE_URL in Netlify dashboard (Site settings → Environment variables)
+# Use your Neon (or other) connection string for production.
+
+[build.environment]
+  NODE_VERSION = "20"
