@@ -46,6 +46,11 @@ function toDatetimeLocal(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+const DEFAULT_INVITATION_TIME: Record<string, string> = {
+  Semarang: "2026-07-25T00:00",
+  Magetan: "2026-08-01T00:00",
+};
+
 const EditIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -190,6 +195,12 @@ export default function GuestManager() {
     resetForm();
   }, [resetForm]);
 
+  const handleWeddingLocationChange = useCallback((value: string) => {
+    setWeddingLocation(value);
+    const defaultTime = DEFAULT_INVITATION_TIME[value];
+    if (defaultTime) setInvitationTime(defaultTime);
+  }, []);
+
   const handleEditSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -317,7 +328,7 @@ export default function GuestManager() {
   return (
     <div className="flex min-h-dvh max-h-dvh flex-col overflow-x-hidden bg-linear-to-br from-default-50 to-default-100 py-4 px-4">
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-6">
-        <header className="flex shrink-0 flex-col items-center justify-center overflow-hidden text-center bg-linear-to-br from-default-50 to-default-100 pt-4 pb-2 -mx-4 px-4">
+        <header className="flex shrink-0 flex-col items-center justify-center overflow-hidden text-center bg-linear-to-br from-default-50 to-default-100">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             Daftar tamu undangan
           </h1>
@@ -327,6 +338,9 @@ export default function GuestManager() {
               ❤️
             </span>{" "}
             by Haki Studio
+          </p>
+          <p className="pt-2 text-gray-400 text-xs" aria-live="polite">
+            Total: {guests.length} tamu undangan
           </p>
         </header>
 
@@ -377,7 +391,7 @@ export default function GuestManager() {
                 <RadioGroup
                   name="weddingLocation"
                   value={weddingLocation}
-                  onChange={setWeddingLocation}
+                  onChange={handleWeddingLocationChange}
                   variant="secondary"
                   orientation="horizontal"
                 >
@@ -737,7 +751,7 @@ export default function GuestManager() {
                     <RadioGroup
                       name="edit-weddingLocation"
                       value={weddingLocation}
-                      onChange={setWeddingLocation}
+                      onChange={handleWeddingLocationChange}
                       variant="secondary"
                       orientation="horizontal"
                     >
