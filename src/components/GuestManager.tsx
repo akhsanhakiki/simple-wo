@@ -796,12 +796,26 @@ export default function GuestManager() {
                           <td className="py-2 px-3 font-medium text-foreground">{g.name}</td>
                           <td className="py-2 px-3 text-right tabular-nums text-default-600">{g.guestCount}</td>
                           <td className="py-2 px-3 text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button size="sm" variant="ghost" onPress={() => openRenameGroup(g)} aria-label="Ubah nama grup">
-                                Ubah
+                            <div className="flex justify-end gap-0.5">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                isIconOnly
+                                onPress={() => openRenameGroup(g)}
+                                aria-label="Ubah nama grup"
+                                className="text-default-500 hover:text-foreground min-w-8 w-8"
+                              >
+                                <EditIcon />
                               </Button>
-                              <Button size="sm" variant="ghost" className="text-default-400 hover:text-red-600" onPress={() => openDeleteGroupConfirm(g)} aria-label="Hapus grup">
-                                Hapus
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                isIconOnly
+                                onPress={() => openDeleteGroupConfirm(g)}
+                                aria-label="Hapus grup"
+                                className="text-default-400 hover:text-red-600 min-w-8 w-8"
+                              >
+                                <TrashIcon />
                               </Button>
                             </div>
                           </td>
