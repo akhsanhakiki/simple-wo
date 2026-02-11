@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { eq } from 'drizzle-orm';
 import { db } from '../../../lib/db';
-import { guests } from '../../../lib/db/schema';
+import { guestGroups, guests } from '../../../lib/db/schema';
 
 function parseId(id: string): number | null {
 	const n = parseInt(id, 10);
@@ -50,7 +50,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
 			headers: { 'Content-Type': 'application/json' },
 		});
 	}
-	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string };
+	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string; guestType?: string; guestGroup?: string };
 	try {
 		body = await request.json();
 	} catch {
@@ -82,12 +82,26 @@ export const PUT: APIRoute = async ({ params, request }) => {
 	const invitationType = body.invitationType !== undefined
 		? (body.invitationType === 'physical' || body.invitationType === 'digital' ? body.invitationType : null)
 		: undefined;
-	const updates: { name?: string; address?: string | null; weddingLocation?: string | null; invitationTime?: Date | null; invitationType?: string | null } = {};
+	const guestType = body.guestType !== undefined
+		? (body.guestType === 'sekaliyan' || body.guestType === 'sendiri' ? body.guestType : null)
+		: undefined;
+	const guestGroup = body.guestGroup !== undefined
+		? (typeof body.guestGroup === 'string' ? body.guestGroup.trim() || null : null)
+		: undefined;
+	const updates: { name?: string; address?: string | null; weddingLocation?: string | null; invitationTime?: Date | null; invitationType?: string | null; guestType?: string | null; guestGroup?: string | null } = {};
 	if (name !== undefined) updates.name = name;
 	if (address !== undefined) updates.address = address;
 	if (weddingLocation !== undefined) updates.weddingLocation = weddingLocation;
 	if (invitationTime !== undefined) updates.invitationTime = invitationTime;
 	if (invitationType !== undefined) updates.invitationType = invitationType;
+	if (guestType !== undefined) updates.guestType = guestType;
+	if (guestGroup !== undefined) updates.guestGroup = guestGroup;
+	if (guestGroup != null && guestGroup !== '') {
+		const [existingGroup] = await db.select().from(guestGroups).where(eq(guestGroups.name, guestGroup));
+		if (!existingGroup) {
+			await db.insert(guestGroups).values({ name: guestGroup }).onConflictDoNothing({ target: guestGroups.name });
+		}
+	}
 	if (Object.keys(updates).length === 0) {
 		const [existing] = await db.select().from(guests).where(eq(guests.id, id));
 		if (!existing) {

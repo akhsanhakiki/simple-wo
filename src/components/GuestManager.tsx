@@ -1,6 +1,7 @@
 import {
   Button,
   Card,
+  ComboBox,
   Dropdown,
   Input,
   Label,
@@ -21,6 +22,11 @@ const INVITATION_TYPE_LABELS: Record<string, string> = {
   digital: "Digital",
 };
 
+const GUEST_TYPE_LABELS: Record<string, string> = {
+  sekaliyan: "Sekaliyan",
+  sendiri: "Sendiri",
+};
+
 type Guest = {
   id: number;
   name: string;
@@ -28,6 +34,8 @@ type Guest = {
   weddingLocation: string | null;
   invitationTime: string | null;
   invitationType: string | null;
+  guestType: string | null;
+  guestGroup: string | null;
 };
 
 function formatInvitationTime(iso: string | null): string {
@@ -113,6 +121,13 @@ type GuestsResponse = {
   total: number;
   totalAll: number;
   uniqueLocations: string[];
+  guestGroupNames?: string[];
+};
+
+type GuestGroupWithCount = {
+  id: number;
+  name: string;
+  guestCount: number;
 };
 
 export default function GuestManager() {
@@ -120,6 +135,19 @@ export default function GuestManager() {
   const [totalFiltered, setTotalFiltered] = useState(0);
   const [totalAll, setTotalAll] = useState(0);
   const [uniqueLocations, setUniqueLocations] = useState<string[]>([]);
+  const [guestGroupNames, setGuestGroupNames] = useState<string[]>([]);
+  const [groupsList, setGroupsList] = useState<GuestGroupWithCount[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [addGroupOpen, setAddGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [addGroupSubmitting, setAddGroupSubmitting] = useState(false);
+  const [renameGroupOpen, setRenameGroupOpen] = useState(false);
+  const [renameGroupTarget, setRenameGroupTarget] = useState<GuestGroupWithCount | null>(null);
+  const [renameGroupName, setRenameGroupName] = useState("");
+  const [renameGroupSubmitting, setRenameGroupSubmitting] = useState(false);
+  const [deleteGroupConfirm, setDeleteGroupConfirm] = useState<GuestGroupWithCount | null>(null);
+  const [deleteGroupSubmitting, setDeleteGroupSubmitting] = useState(false);
   const [desktopPage, setDesktopPage] = useState(1);
   const [mobileVisibleCount, setMobileVisibleCount] = useState(LIST_PAGE_SIZE);
   const [isDesktop, setIsDesktop] = useState(true);
@@ -136,6 +164,8 @@ export default function GuestManager() {
   const [weddingLocation, setWeddingLocation] = useState("");
   const [invitationTime, setInvitationTime] = useState("");
   const [invitationType, setInvitationType] = useState<string>("digital");
+  const [guestType, setGuestType] = useState<string>("sendiri");
+  const [guestGroup, setGuestGroup] = useState<string>("");
   const [locationFilter, setLocationFilter] = useState<string>("all");
   const [invitationTypeFilter, setInvitationTypeFilter] =
     useState<string>("all");
@@ -183,6 +213,7 @@ export default function GuestManager() {
       setTotalFiltered(json.total);
       setTotalAll(json.totalAll);
       setUniqueLocations(json.uniqueLocations ?? []);
+      setGuestGroupNames(json.guestGroupNames ?? []);
     } catch {
       setError("Tidak dapat memuat tamu. Periksa koneksi Anda dan coba lagi.");
     } finally {
@@ -208,6 +239,8 @@ export default function GuestManager() {
     setWeddingLocation("");
     setInvitationTime("");
     setInvitationType("digital");
+    setGuestType("sendiri");
+    setGuestGroup("");
   }, []);
 
   const startEdit = useCallback((g: Guest) => {
@@ -217,6 +250,8 @@ export default function GuestManager() {
     setWeddingLocation(g.weddingLocation ?? "");
     setInvitationTime(toDatetimeLocal(g.invitationTime));
     setInvitationType(g.invitationType === "physical" ? "physical" : "digital");
+    setGuestType(g.guestType === "sekaliyan" ? "sekaliyan" : "sendiri");
+    setGuestGroup(g.guestGroup ?? "");
   }, []);
 
   const totalPages = Math.max(1, Math.ceil(totalFiltered / LIST_PAGE_SIZE));
@@ -273,6 +308,8 @@ export default function GuestManager() {
             invitationTime: invitationTime || null,
             invitationType:
               invitationType === "physical" ? "physical" : "digital",
+            guestType: guestType === "sekaliyan" ? "sekaliyan" : "sendiri",
+            guestGroup: guestGroup.trim() || null,
           }),
         });
         if (!res.ok) return;
@@ -289,6 +326,8 @@ export default function GuestManager() {
       weddingLocation,
       invitationTime,
       invitationType,
+      guestType,
+      guestGroup,
       resetForm,
       loadList,
     ],
@@ -312,6 +351,8 @@ export default function GuestManager() {
               invitationTime: invitationTime || null,
               invitationType:
                 invitationType === "physical" ? "physical" : "digital",
+              guestType: guestType === "sekaliyan" ? "sekaliyan" : "sendiri",
+              guestGroup: guestGroup.trim() || null,
             }),
           });
           if (!res.ok) return;
@@ -326,6 +367,8 @@ export default function GuestManager() {
               invitationTime: invitationTime || null,
               invitationType:
                 invitationType === "physical" ? "physical" : "digital",
+              guestType: guestType === "sekaliyan" ? "sekaliyan" : "sendiri",
+              guestGroup: guestGroup.trim() || null,
             }),
           });
           if (!res.ok) return;
@@ -343,10 +386,127 @@ export default function GuestManager() {
       weddingLocation,
       invitationTime,
       invitationType,
+      guestType,
+      guestGroup,
       resetForm,
       loadList,
     ],
   );
+
+  const guestGroupOptions = useMemo(() => guestGroupNames, [guestGroupNames]);
+
+  const loadGroups = useCallback(async () => {
+    setGroupsLoading(true);
+    setGroupsError(null);
+    try {
+      const res = await fetch("/api/guest-groups");
+      if (!res.ok) throw new Error("Failed to load groups");
+      const data = (await res.json()) as GuestGroupWithCount[];
+      setGroupsList(data);
+    } catch {
+      setGroupsError("Tidak dapat memuat grup tamu.");
+    } finally {
+      setGroupsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "groups") loadGroups();
+  }, [activeTab, loadGroups]);
+
+  const openAddGroup = useCallback(() => {
+    setNewGroupName("");
+    setAddGroupOpen(true);
+  }, []);
+
+  const closeAddGroup = useCallback(() => {
+    setAddGroupOpen(false);
+    setNewGroupName("");
+  }, []);
+
+  const handleAddGroup = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newGroupName.trim();
+    if (!trimmed) return;
+    setAddGroupSubmitting(true);
+    try {
+      const res = await fetch("/api/guest-groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        setGroupsError(err.error ?? "Gagal menambah grup");
+        return;
+      }
+      closeAddGroup();
+      await loadGroups();
+      await loadList();
+    } finally {
+      setAddGroupSubmitting(false);
+    }
+  }, [newGroupName, closeAddGroup, loadGroups, loadList]);
+
+  const openRenameGroup = useCallback((g: GuestGroupWithCount) => {
+    setRenameGroupTarget(g);
+    setRenameGroupName(g.name);
+    setRenameGroupOpen(true);
+  }, []);
+
+  const closeRenameGroup = useCallback(() => {
+    setRenameGroupOpen(false);
+    setRenameGroupTarget(null);
+    setRenameGroupName("");
+  }, []);
+
+  const handleRenameGroup = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    const target = renameGroupTarget;
+    const trimmed = renameGroupName.trim();
+    if (!target || !trimmed) return;
+    setRenameGroupSubmitting(true);
+    try {
+      const res = await fetch(`/api/guest-groups/${target.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        setGroupsError(err.error ?? "Gagal mengubah nama grup");
+        return;
+      }
+      closeRenameGroup();
+      await loadGroups();
+      await loadList();
+    } finally {
+      setRenameGroupSubmitting(false);
+    }
+  }, [renameGroupTarget, renameGroupName, closeRenameGroup, loadGroups, loadList]);
+
+  const openDeleteGroupConfirm = useCallback((g: GuestGroupWithCount) => {
+    setDeleteGroupConfirm(g);
+  }, []);
+
+  const closeDeleteGroupConfirm = useCallback(() => {
+    setDeleteGroupConfirm(null);
+  }, []);
+
+  const confirmDeleteGroup = useCallback(async () => {
+    const g = deleteGroupConfirm;
+    if (!g) return;
+    setDeleteGroupSubmitting(true);
+    try {
+      const res = await fetch(`/api/guest-groups/${g.id}`, { method: "DELETE" });
+      if (!res.ok) return;
+      closeDeleteGroupConfirm();
+      await loadGroups();
+      await loadList();
+    } finally {
+      setDeleteGroupSubmitting(false);
+    }
+  }, [deleteGroupConfirm, closeDeleteGroupConfirm, loadGroups, loadList]);
 
   const openDeleteConfirm = useCallback((g: Guest) => {
     setDeleteConfirmGuest(g);
@@ -405,6 +565,10 @@ export default function GuestManager() {
               </Tabs.Tab>
               <Tabs.Tab id="list">
                 Tamu undangan
+                <Tabs.Indicator />
+              </Tabs.Tab>
+              <Tabs.Tab id="groups">
+                Grup tamu
                 <Tabs.Indicator />
               </Tabs.Tab>
             </Tabs.List>
@@ -502,6 +666,62 @@ export default function GuestManager() {
                     </Radio.Content>
                   </Radio>
                 </RadioGroup>
+                <RadioGroup
+                  name="guestType"
+                  value={guestType}
+                  onChange={setGuestType}
+                  variant="secondary"
+                  orientation="horizontal"
+                >
+                  <Label>Tamu</Label>
+                  <Radio value="sendiri">
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    <Radio.Content>
+                      <Label>Sendiri</Label>
+                    </Radio.Content>
+                  </Radio>
+                  <Radio value="sekaliyan">
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    <Radio.Content>
+                      <Label>Sekaliyan</Label>
+                    </Radio.Content>
+                  </Radio>
+                </RadioGroup>
+                <ComboBox
+                  fullWidth
+                  allowsCustomValue
+                  inputValue={guestGroup}
+                  onInputChange={setGuestGroup}
+                  selectedKey={guestGroup || null}
+                  onSelectionChange={(key) =>
+                    setGuestGroup(key != null ? String(key) : "")
+                  }
+                  className="w-full"
+                >
+                  <Label>Grup tamu</Label>
+                  <ComboBox.InputGroup>
+                    <Input placeholder="Pilih atau ketik grup baru..." />
+                    <ComboBox.Trigger />
+                  </ComboBox.InputGroup>
+                  <ComboBox.Popover>
+                    <ListBox>
+                      {guestGroupOptions.map((opt) => (
+                        <ListBox.Item
+                          key={opt}
+                          id={opt}
+                          textValue={opt}
+                        >
+                          {opt}
+                          <ListBox.ItemIndicator />
+                        </ListBox.Item>
+                      ))}
+                    </ListBox>
+                  </ComboBox.Popover>
+                </ComboBox>
                 <div className="flex flex-col gap-3 pt-2 w-full">
                   <Button
                     type="submit"
@@ -530,6 +750,67 @@ export default function GuestManager() {
                   ) : null}
                 </div>
               </form>
+            </div>
+          </Tabs.Panel>
+          <Tabs.Panel
+            id="groups"
+            className="flex min-h-0 flex-1 flex-col overflow-auto pt-2"
+          >
+            <div className="flex flex-col gap-4 max-w-2xl w-full mx-auto">
+              <div className="flex flex-row items-center justify-between gap-2">
+                <h2 className="text-lg font-medium text-foreground">Daftar grup tamu</h2>
+                <Button variant="primary" onPress={openAddGroup}>
+                  Tambah grup
+                </Button>
+              </div>
+              {groupsError ? (
+                <Card className="border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950" variant="default">
+                  <Card.Content>
+                    <p className="text-red-700 dark:text-red-300">{groupsError}</p>
+                  </Card.Content>
+                </Card>
+              ) : groupsLoading ? (
+                <div className="flex items-center gap-2 text-default-500">
+                  <Spinner size="sm" />
+                  <span>Memuat…</span>
+                </div>
+              ) : groupsList.length === 0 ? (
+                <Card variant="secondary" className="p-6">
+                  <Card.Content>
+                    <p className="text-default-500">Belum ada grup. Klik &quot;Tambah grup&quot; untuk membuat.</p>
+                  </Card.Content>
+                </Card>
+              ) : (
+                <div className="rounded-lg border border-default-200/60 bg-default-50/30 overflow-hidden">
+                  <table className="w-full border-collapse text-sm">
+                    <thead className="bg-default-100/95 border-b border-default-200/60">
+                      <tr>
+                        <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500">Grup</th>
+                        <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-24">Tamu</th>
+                        <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-32">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupsList.map((g) => (
+                        <tr key={g.id} className="border-b border-default-200/40 last:border-b-0 hover:bg-default-100/50">
+                          <td className="py-2 px-3 font-medium text-foreground">{g.name}</td>
+                          <td className="py-2 px-3 text-right tabular-nums text-default-600">{g.guestCount}</td>
+                          <td className="py-2 px-3 text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button size="sm" variant="ghost" onPress={() => openRenameGroup(g)} aria-label="Ubah nama grup">
+                                Ubah
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-default-400 hover:text-red-600" onPress={() => openDeleteGroupConfirm(g)} aria-label="Hapus grup">
+                                Hapus
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </Tabs.Panel>
           <Tabs.Panel
@@ -764,6 +1045,8 @@ export default function GuestManager() {
                             </p>
                             <p className="truncate text-xs text-default-500">
                               {[
+                                g.guestGroup,
+                                GUEST_TYPE_LABELS[g.guestType ?? ""] ?? "—",
                                 INVITATION_TYPE_LABELS[
                                   g.invitationType ?? ""
                                 ] ?? "—",
@@ -839,6 +1122,12 @@ export default function GuestManager() {
                               Lokasi
                             </th>
                             <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
+                              Grup
+                            </th>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
+                              Tamu
+                            </th>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
                               Tipe
                             </th>
                             <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
@@ -863,6 +1152,12 @@ export default function GuestManager() {
                               </td>
                               <td className="py-2 px-3 text-default-600 hidden md:table-cell">
                                 {g.weddingLocation ?? "—"}
+                              </td>
+                              <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
+                                {g.guestGroup ?? "—"}
+                              </td>
+                              <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
+                                {GUEST_TYPE_LABELS[g.guestType ?? ""] ?? "—"}
                               </td>
                               <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
                                 {INVITATION_TYPE_LABELS[
@@ -1095,6 +1390,62 @@ export default function GuestManager() {
                         </Radio.Content>
                       </Radio>
                     </RadioGroup>
+                    <RadioGroup
+                      name="edit-guestType"
+                      value={guestType}
+                      onChange={setGuestType}
+                      variant="secondary"
+                      orientation="horizontal"
+                    >
+                      <Label>Tamu</Label>
+                      <Radio value="sendiri">
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        <Radio.Content>
+                          <Label>Sendiri</Label>
+                        </Radio.Content>
+                      </Radio>
+                      <Radio value="sekaliyan">
+                        <Radio.Control>
+                          <Radio.Indicator />
+                        </Radio.Control>
+                        <Radio.Content>
+                          <Label>Sekaliyan</Label>
+                        </Radio.Content>
+                      </Radio>
+                    </RadioGroup>
+                    <ComboBox
+                      fullWidth
+                      allowsCustomValue
+                      inputValue={guestGroup}
+                      onInputChange={setGuestGroup}
+                      selectedKey={guestGroup || null}
+                      onSelectionChange={(key) =>
+                        setGuestGroup(key != null ? String(key) : "")
+                      }
+                      className="w-full"
+                    >
+                      <Label>Grup tamu</Label>
+                      <ComboBox.InputGroup>
+                        <Input placeholder="Pilih atau ketik grup baru..." />
+                        <ComboBox.Trigger />
+                      </ComboBox.InputGroup>
+                      <ComboBox.Popover>
+                        <ListBox>
+                          {guestGroupOptions.map((opt) => (
+                            <ListBox.Item
+                              key={opt}
+                              id={opt}
+                              textValue={opt}
+                            >
+                              {opt}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </ComboBox.Popover>
+                    </ComboBox>
                   </Modal.Body>
                   <Modal.Footer className="flex gap-2">
                     <Button
@@ -1146,6 +1497,108 @@ export default function GuestManager() {
                     variant="danger"
                     isPending={deleting}
                     onPress={confirmDelete}
+                  >
+                    {({ isPending }) => (isPending ? "Menghapus…" : "Hapus")}
+                  </Button>
+                </Modal.Footer>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
+
+        <Modal>
+          <Modal.Backdrop
+            isOpen={addGroupOpen}
+            onOpenChange={(open) => !open && closeAddGroup()}
+          >
+            <Modal.Container>
+              <Modal.Dialog className="sm:max-w-sm">
+                <Modal.CloseTrigger />
+                <Modal.Header>
+                  <Modal.Heading>Tambah grup tamu</Modal.Heading>
+                </Modal.Header>
+                <form onSubmit={handleAddGroup}>
+                  <Modal.Body className="flex flex-col gap-4">
+                    <TextField fullWidth name="newGroupName" value={newGroupName} onChange={setNewGroupName}>
+                      <Label>Nama grup</Label>
+                      <Input variant="secondary" placeholder="Contoh: Teman Kantor" />
+                    </TextField>
+                  </Modal.Body>
+                  <Modal.Footer className="flex gap-2">
+                    <Button type="button" variant="secondary" onPress={closeAddGroup}>
+                      Batal
+                    </Button>
+                    <Button type="submit" variant="primary" isPending={addGroupSubmitting}>
+                      {({ isPending }) => (isPending ? "Menambah…" : "Tambah")}
+                    </Button>
+                  </Modal.Footer>
+                </form>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
+
+        <Modal>
+          <Modal.Backdrop
+            isOpen={renameGroupOpen}
+            onOpenChange={(open) => !open && closeRenameGroup()}
+          >
+            <Modal.Container>
+              <Modal.Dialog className="sm:max-w-sm">
+                <Modal.CloseTrigger />
+                <Modal.Header>
+                  <Modal.Heading>Ubah nama grup</Modal.Heading>
+                </Modal.Header>
+                <form onSubmit={handleRenameGroup}>
+                  <Modal.Body className="flex flex-col gap-4">
+                    <TextField fullWidth name="renameGroupName" value={renameGroupName} onChange={setRenameGroupName}>
+                      <Label>Nama grup</Label>
+                      <Input variant="secondary" placeholder="Nama grup" />
+                    </TextField>
+                  </Modal.Body>
+                  <Modal.Footer className="flex gap-2">
+                    <Button type="button" variant="secondary" onPress={closeRenameGroup}>
+                      Batal
+                    </Button>
+                    <Button type="submit" variant="primary" isPending={renameGroupSubmitting}>
+                      {({ isPending }) => (isPending ? "Menyimpan…" : "Simpan")}
+                    </Button>
+                  </Modal.Footer>
+                </form>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
+
+        <Modal>
+          <Modal.Backdrop
+            isOpen={deleteGroupConfirm !== null}
+            onOpenChange={(open) => !open && closeDeleteGroupConfirm()}
+          >
+            <Modal.Container>
+              <Modal.Dialog className="sm:max-w-sm">
+                <Modal.CloseTrigger />
+                <Modal.Header>
+                  <Modal.Heading>Hapus grup</Modal.Heading>
+                </Modal.Header>
+                <Modal.Body>
+                  <p className="text-default-600">
+                    Hapus grup{" "}
+                    <span className="font-medium text-foreground">{deleteGroupConfirm?.name}</span>?{" "}
+                    {deleteGroupConfirm?.guestCount
+                      ? `${deleteGroupConfirm.guestCount} tamu akan tidak memiliki grup. `
+                      : ""}
+                    Tindakan ini tidak dapat dibatalkan.
+                  </p>
+                </Modal.Body>
+                <Modal.Footer className="flex gap-2">
+                  <Button variant="secondary" onPress={closeDeleteGroupConfirm}>
+                    Batal
+                  </Button>
+                  <Button
+                    variant="danger"
+                    isPending={deleteGroupSubmitting}
+                    onPress={confirmDeleteGroup}
                   >
                     {({ isPending }) => (isPending ? "Menghapus…" : "Hapus")}
                   </Button>

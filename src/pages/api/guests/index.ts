@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { and, count, eq, sql } from 'drizzle-orm';
 import { db } from '../../../lib/db';
-import { guests } from '../../../lib/db/schema';
+import { guestGroups, guests } from '../../../lib/db/schema';
 
 const DEFAULT_LIMIT = 15;
 const MAX_LIMIT = 100;
@@ -60,6 +60,9 @@ export const GET: APIRoute = async ({ request }) => {
 			),
 		];
 
+		const groupRows = await db.select({ name: guestGroups.name }).from(guestGroups).orderBy(guestGroups.name);
+		const guestGroupNames = groupRows.map((r) => r.name);
+
 		const data = await db
 			.select()
 			.from(guests)
@@ -69,7 +72,7 @@ export const GET: APIRoute = async ({ request }) => {
 			.offset(offset);
 
 		return new Response(
-			JSON.stringify({ data, total, totalAll, uniqueLocations }),
+			JSON.stringify({ data, total, totalAll, uniqueLocations, guestGroupNames }),
 			{
 				status: 200,
 				headers: { 'Content-Type': 'application/json' },
@@ -90,7 +93,7 @@ export const POST: APIRoute = async ({ request }) => {
 			headers: { 'Content-Type': 'application/json' },
 		});
 	}
-	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string };
+	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string; guestType?: string; guestGroup?: string };
 	try {
 		body = await request.json();
 	} catch {
@@ -109,15 +112,23 @@ export const POST: APIRoute = async ({ request }) => {
 	const address = typeof body.address === 'string' ? body.address.trim() : null;
 	const weddingLocation = typeof body.weddingLocation === 'string' ? body.weddingLocation.trim() || null : null;
 	const invitationType = body.invitationType === 'physical' || body.invitationType === 'digital' ? body.invitationType : null;
+	const guestType = body.guestType === 'sekaliyan' || body.guestType === 'sendiri' ? body.guestType : null;
+	let guestGroup: string | null = typeof body.guestGroup === 'string' ? body.guestGroup.trim() || null : null;
 	let invitationTime: Date | null = null;
 	if (body.invitationTime != null) {
 		const parsed = new Date(body.invitationTime);
 		if (!Number.isNaN(parsed.getTime())) invitationTime = parsed;
 	}
 	try {
+		if (guestGroup) {
+			const [existing] = await db.select().from(guestGroups).where(eq(guestGroups.name, guestGroup));
+			if (!existing) {
+				await db.insert(guestGroups).values({ name: guestGroup }).onConflictDoNothing({ target: guestGroups.name });
+			}
+		}
 		const [created] = await db
 			.insert(guests)
-			.values({ name, address, weddingLocation, invitationTime, invitationType })
+			.values({ name, address, weddingLocation, invitationTime, invitationType, guestType, guestGroup })
 			.returning();
 		return new Response(JSON.stringify(created), {
 			status: 201,
