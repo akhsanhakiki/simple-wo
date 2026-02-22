@@ -1133,6 +1133,9 @@ export default function GuestManager() {
                               Nama
                             </th>
                             <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden md:table-cell">
+                              Alamat
+                            </th>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden md:table-cell">
                               Lokasi
                             </th>
                             <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
@@ -1163,6 +1166,9 @@ export default function GuestManager() {
                               </td>
                               <td className="py-2 px-3 font-medium text-foreground">
                                 {g.name}
+                              </td>
+                              <td className="py-2 px-3 text-default-600 hidden md:table-cell max-w-[200px] truncate" title={g.address ?? undefined}>
+                                {g.address ?? "—"}
                               </td>
                               <td className="py-2 px-3 text-default-600 hidden md:table-cell">
                                 {g.weddingLocation ?? "—"}
