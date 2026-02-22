@@ -20,6 +20,8 @@ export const GET: APIRoute = async ({ request }) => {
 		const search = (url.searchParams.get('search') ?? '').trim();
 		const location = (url.searchParams.get('location') ?? '').trim();
 		const invitationType = (url.searchParams.get('invitationType') ?? '').trim();
+		const guestGroup = (url.searchParams.get('guestGroup') ?? '').trim();
+		const guestType = (url.searchParams.get('guestType') ?? '').trim();
 
 		const conditions = [];
 		if (search) {
@@ -33,6 +35,12 @@ export const GET: APIRoute = async ({ request }) => {
 		}
 		if (invitationType) {
 			conditions.push(eq(guests.invitationType, invitationType));
+		}
+		if (guestGroup) {
+			conditions.push(eq(guests.guestGroup, guestGroup));
+		}
+		if (guestType === 'sekaliyan' || guestType === 'sendiri') {
+			conditions.push(eq(guests.guestType, guestType));
 		}
 		const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -67,7 +75,7 @@ export const GET: APIRoute = async ({ request }) => {
 			.select()
 			.from(guests)
 			.where(whereClause)
-			.orderBy(guests.id)
+			.orderBy(guests.guestGroup, guests.id)
 			.limit(limit)
 			.offset(offset);
 

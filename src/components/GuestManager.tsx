@@ -15,7 +15,9 @@ import {
   Spinner,
   Tabs,
 } from "@heroui/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const INVITATION_TYPE_LABELS: Record<string, string> = {
   physical: "Fisik",
@@ -58,6 +60,44 @@ const DEFAULT_INVITATION_TIME: Record<string, string> = {
   Semarang: "2026-07-25T00:00",
   Magetan: "2026-08-01T00:00",
 };
+
+const SHIFT_OPTIONS = [
+  { value: "shift1", label: "Shift 1: 10.00 - 11.00", startTime: "10:00" },
+  { value: "shift2", label: "Shift 2: 11.00 - 12.30", startTime: "11:00" },
+  { value: "shift3", label: "Shift 3: 12.30 - 13.00", startTime: "12:30" },
+] as const;
+
+function getShiftKeyFromTime(iso: string | null): string {
+  if (!iso) return SHIFT_OPTIONS[0].value;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return SHIFT_OPTIONS[0].value;
+  const h = d.getHours();
+  const m = d.getMinutes();
+  if (h === 10 && m === 0) return "shift1";
+  if (h === 11 && m === 0) return "shift2";
+  if (h === 12 && m === 30) return "shift3";
+  return SHIFT_OPTIONS[0].value;
+}
+
+function getShiftLabelFromInvitationTime(iso: string | null): string {
+  const key = getShiftKeyFromTime(iso);
+  return SHIFT_OPTIONS.find((s) => s.value === key)?.label ?? "—";
+}
+
+function applyShiftToInvitationTime(
+  currentInvitationTime: string,
+  weddingLocation: string,
+  shiftKey: string
+): string {
+  const base =
+    currentInvitationTime || DEFAULT_INVITATION_TIME[weddingLocation] || "";
+  const d = base ? new Date(base) : new Date();
+  const fallback = Number.isNaN(d.getTime()) ? new Date() : d;
+  const opt = SHIFT_OPTIONS.find((s) => s.value === shiftKey);
+  const [hours, minutes] = (opt?.startTime ?? "10:00").split(":").map(Number);
+  fallback.setHours(hours, minutes, 0, 0);
+  return toDatetimeLocal(fallback.toISOString());
+}
 
 const EditIcon = () => (
   <svg
@@ -113,6 +153,23 @@ const DotsIcon = () => (
     <circle cx="12" cy="19" r="1" />
   </svg>
 );
+const CloseIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </svg>
+);
 
 const LIST_PAGE_SIZE = 15;
 
@@ -145,9 +202,13 @@ export default function GuestManager() {
   const [renameGroupOpen, setRenameGroupOpen] = useState(false);
   const [renameGroupTarget, setRenameGroupTarget] = useState<GuestGroupWithCount | null>(null);
   const [renameGroupName, setRenameGroupName] = useState("");
+  const [renameGroupShift, setRenameGroupShift] = useState<string>("all");
   const [renameGroupSubmitting, setRenameGroupSubmitting] = useState(false);
   const [deleteGroupConfirm, setDeleteGroupConfirm] = useState<GuestGroupWithCount | null>(null);
   const [deleteGroupSubmitting, setDeleteGroupSubmitting] = useState(false);
+  const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
+  const [groupGuests, setGroupGuests] = useState<Guest[]>([]);
+  const [groupGuestsLoading, setGroupGuestsLoading] = useState(false);
   const [desktopPage, setDesktopPage] = useState(1);
   const [mobileVisibleCount, setMobileVisibleCount] = useState(LIST_PAGE_SIZE);
   const [isDesktop, setIsDesktop] = useState(true);
@@ -169,9 +230,13 @@ export default function GuestManager() {
   const [locationFilter, setLocationFilter] = useState<string>("all");
   const [invitationTypeFilter, setInvitationTypeFilter] =
     useState<string>("all");
+  const [guestTypeFilter, setGuestTypeFilter] = useState<string>("all");
+  const [groupFilter, setGroupFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [activeTab, setActiveTab] = useState<string>("add");
+  const [exportPdfLoading, setExportPdfLoading] = useState(false);
+  const refreshGroupViewAfterEditRef = useRef(false);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(searchQuery), 800);
@@ -189,7 +254,7 @@ export default function GuestManager() {
   useEffect(() => {
     setDesktopPage(1);
     setMobileVisibleCount(LIST_PAGE_SIZE);
-  }, [searchDebounced, locationFilter, invitationTypeFilter]);
+  }, [searchDebounced, locationFilter, invitationTypeFilter, guestTypeFilter, groupFilter]);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -205,6 +270,10 @@ export default function GuestManager() {
       params.set("location", locationFilter);
     if (invitationTypeFilter && invitationTypeFilter !== "all")
       params.set("invitationType", invitationTypeFilter);
+    if (guestTypeFilter && guestTypeFilter !== "all")
+      params.set("guestType", guestTypeFilter);
+    if (groupFilter && groupFilter !== "all")
+      params.set("guestGroup", groupFilter);
     try {
       const res = await fetch(`/api/guests?${params}`);
       if (!res.ok) throw new Error("Failed to load guests");
@@ -226,6 +295,8 @@ export default function GuestManager() {
     searchDebounced,
     locationFilter,
     invitationTypeFilter,
+    guestTypeFilter,
+    groupFilter,
   ]);
 
   useEffect(() => {
@@ -281,14 +352,91 @@ export default function GuestManager() {
     return pages;
   }, [totalPages, desktopPage]);
 
+  const handleExportPdf = useCallback(async () => {
+    setExportPdfLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (searchDebounced.trim()) params.set("search", searchDebounced.trim());
+      if (locationFilter && locationFilter !== "all")
+        params.set("location", locationFilter);
+      if (invitationTypeFilter && invitationTypeFilter !== "all")
+        params.set("invitationType", invitationTypeFilter);
+      if (guestTypeFilter && guestTypeFilter !== "all")
+        params.set("guestType", guestTypeFilter);
+      const res = await fetch(`/api/guests/export?${params}`);
+      if (!res.ok) throw new Error("Export failed");
+      const json = (await res.json()) as { data: Guest[] };
+      const rows = json.data;
+      if (rows.length === 0) return;
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm" });
+      const head = [
+        "#",
+        "Nama",
+        "Alamat",
+        "Lokasi",
+        "Grup",
+        "Tamu",
+        "Tipe",
+        "Waktu",
+      ];
+      const body = rows.map((g, i) => [
+        String(i + 1),
+        g.name ?? "—",
+        g.address ?? "—",
+        g.weddingLocation ?? "—",
+        g.guestGroup ?? "—",
+        GUEST_TYPE_LABELS[g.guestType ?? ""] ?? "—",
+        INVITATION_TYPE_LABELS[g.invitationType ?? ""] ?? "—",
+        getShiftLabelFromInvitationTime(g.invitationTime),
+      ]);
+      autoTable(doc, {
+        head: [head],
+        body,
+        startY: 12,
+        margin: { left: 10, right: 10 },
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [100, 100, 100] },
+      });
+      const title = "Daftar Tamu Undangan";
+      const filterDesc = [
+        locationFilter && locationFilter !== "all" ? locationFilter : null,
+        invitationTypeFilter && invitationTypeFilter !== "all"
+          ? INVITATION_TYPE_LABELS[invitationTypeFilter]
+          : null,
+        guestTypeFilter && guestTypeFilter !== "all"
+          ? GUEST_TYPE_LABELS[guestTypeFilter]
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      doc.setFontSize(10);
+      doc.text(
+        filterDesc ? `${title} (${filterDesc})` : title,
+        10,
+        8,
+      );
+      doc.save(`daftar-tamu-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch {
+      setError("Gagal mengunduh PDF. Coba lagi.");
+    } finally {
+      setExportPdfLoading(false);
+    }
+  }, [
+    searchDebounced,
+    locationFilter,
+    invitationTypeFilter,
+    guestTypeFilter,
+  ]);
+
   const closeEditModal = useCallback(() => {
     resetForm();
   }, [resetForm]);
 
   const handleWeddingLocationChange = useCallback((value: string) => {
     setWeddingLocation(value);
-    const defaultTime = DEFAULT_INVITATION_TIME[value];
-    if (defaultTime) setInvitationTime(defaultTime);
+    setInvitationTime(
+      applyShiftToInvitationTime("", value, SHIFT_OPTIONS[0].value)
+    );
   }, []);
 
   const handleEditSubmit = useCallback(
@@ -315,6 +463,7 @@ export default function GuestManager() {
         if (!res.ok) return;
         resetForm();
         await loadList();
+        refreshGroupViewAfterEditRef.current = true;
       } finally {
         setSubmitting(false);
       }
@@ -414,6 +563,51 @@ export default function GuestManager() {
     if (activeTab === "groups") loadGroups();
   }, [activeTab, loadGroups]);
 
+  const loadGuestsForGroup = useCallback(async (groupName: string) => {
+    setGroupGuestsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        guestGroup: groupName,
+        limit: "500",
+      });
+      const res = await fetch(`/api/guests?${params}`);
+      if (!res.ok) throw new Error("Failed to load guests");
+      const json = (await res.json()) as GuestsResponse;
+      setGroupGuests(json.data);
+    } catch {
+      setGroupGuests([]);
+    } finally {
+      setGroupGuestsLoading(false);
+    }
+  }, []);
+
+  const selectGroupForPanel = useCallback(
+    (g: GuestGroupWithCount) => {
+      setExpandedGroupId(g.id);
+      loadGuestsForGroup(g.name);
+    },
+    [loadGuestsForGroup],
+  );
+
+  const closeGroupPanel = useCallback(() => {
+    setExpandedGroupId(null);
+    setGroupGuests([]);
+  }, []);
+
+  useEffect(() => {
+    if (expandedGroupId == null) {
+      refreshGroupViewAfterEditRef.current = false;
+      return;
+    }
+    if (!refreshGroupViewAfterEditRef.current) return;
+    const group = groupsList.find((x) => x.id === expandedGroupId);
+    if (group) {
+      refreshGroupViewAfterEditRef.current = false;
+      loadGuestsForGroup(group.name);
+      loadGroups();
+    }
+  }, [expandedGroupId, groupsList, loadGuestsForGroup, loadGroups, listData]);
+
   const openAddGroup = useCallback(() => {
     setNewGroupName("");
     setAddGroupOpen(true);
@@ -458,6 +652,7 @@ export default function GuestManager() {
     setRenameGroupOpen(false);
     setRenameGroupTarget(null);
     setRenameGroupName("");
+    setRenameGroupShift("all");
   }, []);
 
   const handleRenameGroup = useCallback(async (e: React.FormEvent) => {
@@ -465,6 +660,7 @@ export default function GuestManager() {
     const target = renameGroupTarget;
     const trimmed = renameGroupName.trim();
     if (!target || !trimmed) return;
+    const shiftKey = renameGroupShift;
     setRenameGroupSubmitting(true);
     try {
       const res = await fetch(`/api/guest-groups/${target.id}`, {
@@ -477,13 +673,44 @@ export default function GuestManager() {
         setGroupsError(err.error ?? "Gagal mengubah nama grup");
         return;
       }
+      if (shiftKey !== "all" && target.guestCount > 0) {
+        const guestRes = await fetch(
+          `/api/guests?${new URLSearchParams({ guestGroup: trimmed, limit: "500" })}`
+        );
+        if (guestRes.ok) {
+          const json = (await guestRes.json()) as GuestsResponse;
+          const guestsToUpdate = json.data ?? [];
+          await Promise.all(
+            guestsToUpdate.map((g) => {
+              const newTime = applyShiftToInvitationTime(
+                g.invitationTime ? toDatetimeLocal(g.invitationTime) : "",
+                g.weddingLocation ?? "",
+                shiftKey
+              );
+              return fetch(`/api/guests/${g.id}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  name: g.name,
+                  address: g.address ?? null,
+                  weddingLocation: g.weddingLocation ?? null,
+                  invitationTime: newTime || null,
+                  invitationType: g.invitationType ?? "digital",
+                  guestType: g.guestType ?? "sendiri",
+                  guestGroup: g.guestGroup ?? null,
+                }),
+              });
+            })
+          );
+        }
+      }
       closeRenameGroup();
       await loadGroups();
       await loadList();
     } finally {
       setRenameGroupSubmitting(false);
     }
-  }, [renameGroupTarget, renameGroupName, closeRenameGroup, loadGroups, loadList]);
+  }, [renameGroupTarget, renameGroupName, renameGroupShift, closeRenameGroup, loadGroups, loadList]);
 
   const openDeleteGroupConfirm = useCallback((g: GuestGroupWithCount) => {
     setDeleteGroupConfirm(g);
@@ -524,12 +751,17 @@ export default function GuestManager() {
       const res = await fetch(`/api/guests/${guest.id}`, { method: "DELETE" });
       if (!res.ok) return;
       await loadList();
+      if (expandedGroupId != null) {
+        const group = groupsList.find((x) => x.id === expandedGroupId);
+        if (group) loadGuestsForGroup(group.name);
+      }
+      await loadGroups();
       if (editingId === guest.id) resetForm();
       closeDeleteConfirm();
     } finally {
       setDeleting(false);
     }
-  }, [deleteConfirmGuest, editingId, loadList, resetForm, closeDeleteConfirm]);
+  }, [deleteConfirmGuest, editingId, loadList, loadGroups, expandedGroupId, groupsList, loadGuestsForGroup, resetForm, closeDeleteConfirm]);
 
   return (
     <div className="flex min-h-dvh max-h-dvh flex-col overflow-x-hidden bg-linear-to-br from-default-50 to-default-100 py-4 px-4">
@@ -627,20 +859,42 @@ export default function GuestManager() {
                     </Radio.Content>
                   </Radio>
                 </RadioGroup>
-                <TextField
+                <Select
                   fullWidth
                   name="invitationTime"
-                  value={invitationTime}
-                  onChange={setInvitationTime}
+                  placeholder="Pilih shift"
+                  variant="secondary"
+                  value={getShiftKeyFromTime(invitationTime || null)}
+                  onChange={(key) =>
+                    setInvitationTime(
+                      applyShiftToInvitationTime(
+                        invitationTime,
+                        weddingLocation,
+                        String(key ?? "shift1")
+                      )
+                    )
+                  }
                 >
-                  <Label>Waktu undangan</Label>
-                  <Input
-                    variant="secondary"
-                    type="datetime-local"
-                    value={invitationTime}
-                    onChange={(e) => setInvitationTime(e.target.value)}
-                  />
-                </TextField>
+                  <Label>Waktu undangan (Shift)</Label>
+                  <Select.Trigger>
+                    <Select.Value />
+                    <Select.Indicator />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      {SHIFT_OPTIONS.map((opt) => (
+                        <ListBox.Item
+                          key={opt.value}
+                          id={opt.value}
+                          textValue={opt.label}
+                        >
+                          {opt.label}
+                          <ListBox.ItemIndicator />
+                        </ListBox.Item>
+                      ))}
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
                 <RadioGroup
                   name="invitationType"
                   value={invitationType}
@@ -754,55 +1008,130 @@ export default function GuestManager() {
           </Tabs.Panel>
           <Tabs.Panel
             id="groups"
-            className="flex min-h-0 flex-1 flex-col overflow-auto pt-2"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2"
           >
-            <div className="flex flex-col gap-4 max-w-2xl w-full mx-auto">
-              <div className="flex flex-row items-center justify-between gap-2">
-                <h2 className="text-lg font-medium text-foreground">Daftar grup tamu</h2>
-                <Button variant="primary" onPress={openAddGroup}>
-                  Tambah grup
-                </Button>
-              </div>
-              {groupsError ? (
-                <Card className="border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950" variant="default">
-                  <Card.Content>
-                    <p className="text-red-700 dark:text-red-300">{groupsError}</p>
-                  </Card.Content>
-                </Card>
-              ) : groupsLoading ? (
-                <div className="flex items-center gap-2 text-default-500">
-                  <Spinner size="sm" />
-                  <span>Memuat…</span>
+            <div className="flex flex-1 min-h-0 gap-4 w-full max-w-full mx-auto">
+              <div className="flex flex-col gap-4 min-w-0 flex-1">
+                <div className="flex flex-row items-center justify-between gap-2">
+                  <h2 className="text-lg font-medium text-foreground">Daftar grup tamu</h2>
+                  <Button variant="primary" onPress={openAddGroup}>
+                    Tambah grup
+                  </Button>
                 </div>
-              ) : groupsList.length === 0 ? (
-                <Card variant="secondary" className="p-6">
-                  <Card.Content>
-                    <p className="text-default-500">Belum ada grup. Klik &quot;Tambah grup&quot; untuk membuat.</p>
-                  </Card.Content>
-                </Card>
-              ) : (
-                <div className="rounded-lg border border-default-200/60 bg-default-50/30 overflow-hidden">
-                  <table className="w-full border-collapse text-sm">
-                    <thead className="bg-default-100/95 border-b border-default-200/60">
-                      <tr>
-                        <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500">Grup</th>
-                        <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-24">Tamu</th>
-                        <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-32">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupsList.map((g) => (
-                        <tr key={g.id} className="border-b border-default-200/40 last:border-b-0 hover:bg-default-100/50">
-                          <td className="py-2 px-3 font-medium text-foreground">{g.name}</td>
-                          <td className="py-2 px-3 text-right tabular-nums text-default-600">{g.guestCount}</td>
-                          <td className="py-2 px-3 text-right">
-                            <div className="flex justify-end gap-0.5">
+                {groupsError ? (
+                  <Card className="border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950" variant="default">
+                    <Card.Content>
+                      <p className="text-red-700 dark:text-red-300">{groupsError}</p>
+                    </Card.Content>
+                  </Card>
+                ) : groupsLoading ? (
+                  <div className="flex items-center gap-2 text-default-500">
+                    <Spinner size="sm" />
+                    <span>Memuat…</span>
+                  </div>
+                ) : groupsList.length === 0 ? (
+                  <Card variant="secondary" className="p-6">
+                    <Card.Content>
+                      <p className="text-default-500">Belum ada grup. Klik &quot;Tambah grup&quot; untuk membuat.</p>
+                    </Card.Content>
+                  </Card>
+                ) : (
+                  <div className="rounded-lg border border-default-200/60 bg-default-50/30 overflow-hidden flex-1 min-h-0 flex flex-col">
+                    <div className="overflow-auto min-h-0">
+                      <table className="w-full border-collapse text-sm">
+                        <thead className="bg-default-100/95 border-b border-default-200/60 sticky top-0">
+                          <tr>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500">Grup</th>
+                            <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-24">Tamu</th>
+                            <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-32">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupsList.map((g) => (
+                            <tr
+                              key={g.id}
+                              className={`border-b border-default-200/40 last:border-b-0 hover:bg-default-100/50 cursor-pointer ${expandedGroupId === g.id ? "bg-default-200/50" : ""}`}
+                              onClick={() => selectGroupForPanel(g)}
+                            >
+                              <td className="py-2 px-3 font-medium text-foreground">{g.name}</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-default-600">{g.guestCount}</td>
+                              <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex justify-end gap-0.5">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    isIconOnly
+                                    onPress={() => openRenameGroup(g)}
+                                    aria-label="Ubah nama grup"
+                                    className="text-default-500 hover:text-foreground min-w-8 w-8"
+                                  >
+                                    <EditIcon />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    isIconOnly
+                                    onPress={() => openDeleteGroupConfirm(g)}
+                                    aria-label="Hapus grup"
+                                    className="text-default-400 hover:text-red-600 min-w-8 w-8"
+                                  >
+                                    <TrashIcon />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {expandedGroupId != null ? (
+                <aside className="w-full sm:min-w-80 sm:flex-1 min-w-0 flex flex-col rounded-lg border border-default-200/60 bg-default-50/50 overflow-hidden min-h-0">
+                  <div className="shrink-0 flex items-center justify-between gap-2 py-3 px-3 border-b border-default-200/60 bg-default-100/80">
+                    <h3 className="text-sm font-medium text-foreground truncate">
+                      {groupsList.find((x) => x.id === expandedGroupId)?.name ?? "Grup"}
+                    </h3>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      isIconOnly
+                      onPress={closeGroupPanel}
+                      aria-label="Tutup panel"
+                      className="text-default-500 hover:text-foreground min-w-8 w-8"
+                    >
+                      <CloseIcon />
+                    </Button>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-auto p-3">
+                    {groupGuestsLoading ? (
+                      <div className="flex items-center gap-2 text-default-500 text-sm">
+                        <Spinner size="sm" />
+                        <span>Memuat daftar tamu…</span>
+                      </div>
+                    ) : groupGuests.length === 0 ? (
+                      <p className="text-sm text-default-500">Tidak ada tamu dalam grup ini.</p>
+                    ) : (
+                      <ul className="text-sm text-foreground space-y-1">
+                        {groupGuests.map((guest) => (
+                          <li
+                            key={guest.id}
+                            className="flex items-center justify-between gap-2 py-2 px-2 rounded-md hover:bg-default-100/50"
+                          >
+                            <span className="min-w-0 truncate">
+                              {guest.name}
+                              {guest.address ? (
+                                <span className="text-default-500 block truncate text-xs mt-0.5"> — {guest.address}</span>
+                              ) : null}
+                            </span>
+                            <div className="flex shrink-0 gap-0.5">
                               <Button
                                 size="sm"
                                 variant="ghost"
                                 isIconOnly
-                                onPress={() => openRenameGroup(g)}
-                                aria-label="Ubah nama grup"
+                                onPress={() => startEdit(guest)}
+                                aria-label={`Ubah ${guest.name}`}
                                 className="text-default-500 hover:text-foreground min-w-8 w-8"
                               >
                                 <EditIcon />
@@ -811,18 +1140,22 @@ export default function GuestManager() {
                                 size="sm"
                                 variant="ghost"
                                 isIconOnly
-                                onPress={() => openDeleteGroupConfirm(g)}
-                                aria-label="Hapus grup"
+                                onPress={() => openDeleteConfirm(guest)}
+                                aria-label={`Hapus ${guest.name}`}
                                 className="text-default-400 hover:text-red-600 min-w-8 w-8"
                               >
                                 <TrashIcon />
                               </Button>
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </aside>
+              ) : (
+                <div className="hidden sm:flex w-80 shrink-0 items-center justify-center rounded-lg border border-dashed border-default-200/60 bg-default-50/30 text-default-500 text-sm">
+                  Klik grup untuk melihat isi
                 </div>
               )}
             </div>
@@ -919,6 +1252,70 @@ export default function GuestManager() {
                           </ListBox>
                         </Select.Popover>
                       </Select>
+                      <Select
+                        className="min-w-0 flex-1"
+                        placeholder="Tipe tamu"
+                        variant="secondary"
+                        value={guestTypeFilter === "" ? "all" : guestTypeFilter}
+                        onChange={(key) =>
+                          setGuestTypeFilter(
+                            key === "all" || key === null ? "" : String(key),
+                          )
+                        }
+                      >
+                        <Label className="sr-only">Tipe tamu</Label>
+                        <Select.Trigger>
+                          <Select.Value />
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            <ListBox.Item id="all" textValue="Semua tipe">
+                              <span className="text-sm">Semua Tipe</span>
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                            <ListBox.Item id="sekaliyan" textValue="Sekaliyan">
+                              Sekaliyan
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                            <ListBox.Item id="sendiri" textValue="Sendiri">
+                              Sendiri
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
+                      <Select
+                        className="min-w-0 flex-1"
+                        placeholder="Grup tamu"
+                        variant="secondary"
+                        value={groupFilter === "" ? "all" : groupFilter}
+                        onChange={(key) =>
+                          setGroupFilter(
+                            key === "all" || key === null ? "" : String(key),
+                          )
+                        }
+                      >
+                        <Label className="sr-only">Grup tamu</Label>
+                        <Select.Trigger>
+                          <Select.Value />
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            <ListBox.Item id="all" textValue="Semua grup">
+                              <span className="text-sm">Semua Grup</span>
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                            {guestGroupNames.map((name) => (
+                              <ListBox.Item key={name} id={name} textValue={name}>
+                                {name}
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
                     </div>
                     <p
                       className="text-default-500 text-xs text-center"
@@ -929,6 +1326,20 @@ export default function GuestManager() {
                         ? ` di ${locationFilter}`
                         : ""}
                     </p>
+                    {totalFiltered > 0 && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onPress={handleExportPdf}
+                        isDisabled={exportPdfLoading}
+                        className="w-full"
+                      >
+                        {exportPdfLoading ? (
+                          <Spinner size="sm" className="mr-1" />
+                        ) : null}
+                        Export PDF
+                      </Button>
+                    )}
                   </div>
                   {/* Desktop: one line — search + location + type + total */}
                   <div className="hidden sm:flex sm:flex-row sm:items-center sm:gap-3 sm:flex-wrap">
@@ -1013,6 +1424,70 @@ export default function GuestManager() {
                         </ListBox>
                       </Select.Popover>
                     </Select>
+                    <Select
+                      className="w-1/2 sm:w-[140px] shrink-0"
+                      placeholder="Tipe tamu"
+                      variant="secondary"
+                      value={guestTypeFilter === "" ? "all" : guestTypeFilter}
+                      onChange={(key) =>
+                        setGuestTypeFilter(
+                          key === "all" || key === null ? "" : String(key),
+                        )
+                      }
+                    >
+                      <Label className="sr-only">Tipe tamu</Label>
+                      <Select.Trigger>
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          <ListBox.Item id="all" textValue="Semua tipe">
+                            <span className="text-sm">Semua Tipe</span>
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                          <ListBox.Item id="sekaliyan" textValue="Sekaliyan">
+                            Sekaliyan
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                          <ListBox.Item id="sendiri" textValue="Sendiri">
+                            Sendiri
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                    <Select
+                      className="w-1/2 sm:w-[160px] shrink-0"
+                      placeholder="Grup tamu"
+                      variant="secondary"
+                      value={groupFilter === "" ? "all" : groupFilter}
+                      onChange={(key) =>
+                        setGroupFilter(
+                          key === "all" || key === null ? "" : String(key),
+                        )
+                      }
+                    >
+                      <Label className="sr-only">Grup tamu</Label>
+                      <Select.Trigger>
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          <ListBox.Item id="all" textValue="Semua grup">
+                            <span className="text-sm">Semua Grup</span>
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                          {guestGroupNames.map((name) => (
+                            <ListBox.Item key={name} id={name} textValue={name}>
+                              {name}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
                     <p
                       className="text-default-500 text-xs shrink-0 sm:ml-auto"
                       aria-live="polite"
@@ -1022,6 +1497,20 @@ export default function GuestManager() {
                         ? ` di ${locationFilter}`
                         : ""}
                     </p>
+                    {totalFiltered > 0 && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onPress={handleExportPdf}
+                        isDisabled={exportPdfLoading}
+                        className="shrink-0"
+                      >
+                        {exportPdfLoading ? (
+                          <Spinner size="sm" className="mr-1" />
+                        ) : null}
+                        Export PDF
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {totalAll === 0 ? (
@@ -1066,7 +1555,7 @@ export default function GuestManager() {
                                 ] ?? "—",
                                 g.weddingLocation,
                                 g.address,
-                                formatInvitationTime(g.invitationTime),
+                                getShiftLabelFromInvitationTime(g.invitationTime),
                               ]
                                 .filter(Boolean)
                                 .join(" · ")}
@@ -1138,7 +1627,7 @@ export default function GuestManager() {
                             <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden md:table-cell">
                               Lokasi
                             </th>
-                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden md:table-cell">
                               Grup
                             </th>
                             <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
@@ -1173,7 +1662,7 @@ export default function GuestManager() {
                               <td className="py-2 px-3 text-default-600 hidden md:table-cell">
                                 {g.weddingLocation ?? "—"}
                               </td>
-                              <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
+                              <td className="py-2 px-3 text-default-600 hidden md:table-cell">
                                 {g.guestGroup ?? "—"}
                               </td>
                               <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
@@ -1185,7 +1674,7 @@ export default function GuestManager() {
                                 ] ?? "—"}
                               </td>
                               <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
-                                {formatInvitationTime(g.invitationTime)}
+                                {getShiftLabelFromInvitationTime(g.invitationTime)}
                               </td>
                               <td className="py-2 px-3 text-right">
                                 <div className="flex justify-end gap-0.5">
@@ -1371,20 +1860,42 @@ export default function GuestManager() {
                         </Radio.Content>
                       </Radio>
                     </RadioGroup>
-                    <TextField
+                    <Select
                       fullWidth
                       name="edit-invitationTime"
-                      value={invitationTime}
-                      onChange={setInvitationTime}
+                      placeholder="Pilih shift"
+                      variant="secondary"
+                      value={getShiftKeyFromTime(invitationTime || null)}
+                      onChange={(key) =>
+                        setInvitationTime(
+                          applyShiftToInvitationTime(
+                            invitationTime,
+                            weddingLocation,
+                            String(key ?? "shift1")
+                          )
+                        )
+                      }
                     >
-                      <Label>Waktu undangan</Label>
-                      <Input
-                        variant="secondary"
-                        type="datetime-local"
-                        value={invitationTime}
-                        onChange={(e) => setInvitationTime(e.target.value)}
-                      />
-                    </TextField>
+                      <Label>Waktu undangan (Shift)</Label>
+                      <Select.Trigger>
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          {SHIFT_OPTIONS.map((opt) => (
+                            <ListBox.Item
+                              key={opt.value}
+                              id={opt.value}
+                              textValue={opt.label}
+                            >
+                              {opt.label}
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
                     <RadioGroup
                       name="edit-invitationType"
                       value={invitationType}
@@ -1575,6 +2086,39 @@ export default function GuestManager() {
                       <Label>Nama grup</Label>
                       <Input variant="secondary" placeholder="Nama grup" />
                     </TextField>
+                    <Select
+                      fullWidth
+                      placeholder="Shift (opsional)"
+                      variant="secondary"
+                      value={renameGroupShift}
+                      onChange={(key) =>
+                        setRenameGroupShift(key == null ? "all" : String(key))
+                      }
+                    >
+                      <Label>Terapkan shift ke semua tamu di grup</Label>
+                      <Select.Trigger>
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover>
+                        <ListBox>
+                          <ListBox.Item id="all" textValue="Tidak mengubah shift">
+                            <span className="text-sm">Tidak mengubah shift</span>
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                          {SHIFT_OPTIONS.map((opt) => (
+                            <ListBox.Item
+                              key={opt.value}
+                              id={opt.value}
+                              textValue={opt.label}
+                            >
+                              <span className="text-sm">{opt.label}</span>
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
                   </Modal.Body>
                   <Modal.Footer className="flex gap-2">
                     <Button type="button" variant="secondary" onPress={closeRenameGroup}>
