@@ -187,7 +187,11 @@ type GuestGroupWithCount = {
   guestCount: number;
 };
 
-export default function GuestManager() {
+type GuestManagerProps = {
+  showAdminTabs?: boolean;
+};
+
+export default function GuestManager({ showAdminTabs = false }: GuestManagerProps) {
   const [listData, setListData] = useState<Guest[]>([]);
   const [totalFiltered, setTotalFiltered] = useState(0);
   const [totalAll, setTotalAll] = useState(0);
@@ -234,7 +238,7 @@ export default function GuestManager() {
   const [groupFilter, setGroupFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
-  const [activeTab, setActiveTab] = useState<string>("add");
+  const [activeTab, setActiveTab] = useState<string>(showAdminTabs ? "add" : "list");
   const [exportPdfLoading, setExportPdfLoading] = useState(false);
   const refreshGroupViewAfterEditRef = useRef(false);
 
@@ -785,10 +789,13 @@ export default function GuestManager() {
         <Tabs
           className="flex min-h-0 w-full flex-1 flex-col"
           selectedKey={activeTab}
-          onSelectionChange={(key) =>
-            setActiveTab(key === null ? "add" : String(key))
-          }
+          onSelectionChange={(key) => {
+            const next = key === null ? (showAdminTabs ? "add" : "list") : String(key);
+            if (!showAdminTabs && next !== "list") return;
+            setActiveTab(next);
+          }}
         >
+          {showAdminTabs ? (
           <Tabs.ListContainer className="shrink-0 overflow-hidden bg-linear-to-br from-default-50 to-default-100 pb-2 -mx-4 px-4">
             <Tabs.List aria-label="Kelola tamu">
               <Tabs.Tab id="add">
@@ -805,6 +812,8 @@ export default function GuestManager() {
               </Tabs.Tab>
             </Tabs.List>
           </Tabs.ListContainer>
+          ) : null}
+          {showAdminTabs ? (
           <Tabs.Panel
             id="add"
             className="flex min-h-0 flex-1 flex-col overflow-auto pt-2"
@@ -1006,6 +1015,8 @@ export default function GuestManager() {
               </form>
             </div>
           </Tabs.Panel>
+          ) : null}
+          {showAdminTabs ? (
           <Tabs.Panel
             id="groups"
             className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2"
@@ -1160,6 +1171,7 @@ export default function GuestManager() {
               )}
             </div>
           </Tabs.Panel>
+          ) : null}
           <Tabs.Panel
             id="list"
             className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2 pb-16 sm:pb-2"
