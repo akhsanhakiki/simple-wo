@@ -18,7 +18,7 @@ export const GET: APIRoute = async ({ request }) => {
 		if (search) {
 			const pattern = `%${search}%`;
 			conditions.push(
-				sql`(${guests.name} ILIKE ${pattern} OR COALESCE(${guests.address}, '')::text ILIKE ${pattern} OR COALESCE(${guests.weddingLocation}, '')::text ILIKE ${pattern})`,
+				sql`(${guests.name} ILIKE ${pattern} OR COALESCE(${guests.address}, '')::text ILIKE ${pattern} OR COALESCE(${guests.weddingLocation}, '')::text ILIKE ${pattern} OR COALESCE(${guests.phone}, '')::text ILIKE ${pattern})`,
 			);
 		}
 		if (location) {

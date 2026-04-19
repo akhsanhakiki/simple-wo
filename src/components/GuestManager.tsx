@@ -33,12 +33,29 @@ type Guest = {
   id: number;
   name: string;
   address: string | null;
+  phone: string | null;
   weddingLocation: string | null;
   invitationTime: string | null;
   invitationType: string | null;
   guestType: string | null;
   guestGroup: string | null;
 };
+
+function normalizePhoneForWa(raw: string | null | undefined): string | null {
+  if (raw == null || raw === "") return null;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 9) return null;
+  let n = digits;
+  if (n.startsWith("62")) {
+    /* Indonesia or already international */
+  } else if (n.startsWith("0")) {
+    n = `62${n.slice(1)}`;
+  } else if (n.startsWith("8")) {
+    n = `62${n}`;
+  }
+  if (n.length < 10) return null;
+  return n;
+}
 
 function formatInvitationTime(iso: string | null): string {
   if (!iso) return "—";
@@ -82,6 +99,37 @@ function getShiftKeyFromTime(iso: string | null): string {
 function getShiftLabelFromInvitationTime(iso: string | null): string {
   const key = getShiftKeyFromTime(iso);
   return SHIFT_OPTIONS.find((s) => s.value === key)?.label ?? "—";
+}
+
+function buildDigitalInviteMessage(g: Guest): string {
+  const loc = g.weddingLocation?.trim() || "—";
+  const shift = getShiftLabelFromInvitationTime(g.invitationTime);
+  const tamu = GUEST_TYPE_LABELS[g.guestType ?? ""] ?? "—";
+  const rawUrl =
+    typeof import.meta.env.PUBLIC_DIGITAL_INVITATION_URL === "string"
+      ? import.meta.env.PUBLIC_DIGITAL_INVITATION_URL.trim()
+      : "";
+  const lines = [
+    "Assalamualaikum warahmatullahi wabarakatuh,",
+    "",
+    `Yth. ${g.name.trim()},`,
+    "",
+    "Dengan hormat, kami mengundang Bapak/Ibu/Saudara/i untuk hadir pada acara pernikahan kami.",
+    "",
+    `Lokasi acara: ${loc}`,
+    `Waktu (sesi undangan): ${shift}`,
+    `Undangan untuk: ${tamu}`,
+  ];
+  if (rawUrl) {
+    lines.push("", `Undangan digital: ${rawUrl}`);
+  }
+  lines.push(
+    "",
+    "Kehadiran Bapak/Ibu/Saudara/i akan melengkapi sukacita kami.",
+    "",
+    "Wassalamualaikum warahmatullahi wabarakatuh",
+  );
+  return lines.join("\n");
 }
 
 function applyShiftToInvitationTime(
@@ -153,6 +201,19 @@ const DotsIcon = () => (
     <circle cx="12" cy="19" r="1" />
   </svg>
 );
+const WaIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden
+  >
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+  </svg>
+);
+
 const CloseIcon = () => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -218,6 +279,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
   const [isDesktop, setIsDesktop] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [waNotice, setWaNotice] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -226,6 +288,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
   );
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
   const [weddingLocation, setWeddingLocation] = useState("");
   const [invitationTime, setInvitationTime] = useState("");
   const [invitationType, setInvitationType] = useState<string>("digital");
@@ -311,6 +374,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
     setEditingId(null);
     setName("");
     setAddress("");
+    setPhone("");
     setWeddingLocation("");
     setInvitationTime("");
     setInvitationType("digital");
@@ -322,6 +386,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
     setEditingId(g.id);
     setName(g.name);
     setAddress(g.address ?? "");
+    setPhone(g.phone ?? "");
     setWeddingLocation(g.weddingLocation ?? "");
     setInvitationTime(toDatetimeLocal(g.invitationTime));
     setInvitationType(g.invitationType === "physical" ? "physical" : "digital");
@@ -382,6 +447,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
         "Tamu",
         "Tipe",
         "Waktu",
+        "WhatsApp",
       ];
       const body = rows.map((g, i) => [
         String(i + 1),
@@ -392,6 +458,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
         GUEST_TYPE_LABELS[g.guestType ?? ""] ?? "—",
         INVITATION_TYPE_LABELS[g.invitationType ?? ""] ?? "—",
         getShiftLabelFromInvitationTime(g.invitationTime),
+        g.phone?.trim() || "—",
       ]);
       autoTable(doc, {
         head: [head],
@@ -456,6 +523,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
           body: JSON.stringify({
             name: trimmedName,
             address: address.trim() || null,
+            phone: phone.trim() || null,
             weddingLocation: weddingLocation.trim() || null,
             invitationTime: invitationTime || null,
             invitationType:
@@ -476,6 +544,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
       editingId,
       name,
       address,
+      phone,
       weddingLocation,
       invitationTime,
       invitationType,
@@ -485,6 +554,19 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
       loadList,
     ],
   );
+
+  const openDigitalWhatsappInvite = useCallback((g: Guest) => {
+    const digits = normalizePhoneForWa(g.phone);
+    if (!digits) {
+      setWaNotice(
+        "Isi nomor WhatsApp di data tamu (menu Ubah tamu) untuk tamu digital.",
+      );
+      return;
+    }
+    setWaNotice(null);
+    const url = `https://wa.me/${digits}?text=${encodeURIComponent(buildDigitalInviteMessage(g))}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -500,6 +582,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
             body: JSON.stringify({
               name: trimmedName,
               address: address.trim() || null,
+              phone: phone.trim() || null,
               weddingLocation: weddingLocation.trim() || null,
               invitationTime: invitationTime || null,
               invitationType:
@@ -516,6 +599,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
             body: JSON.stringify({
               name: trimmedName,
               address: address.trim() || null,
+              phone: phone.trim() || null,
               weddingLocation: weddingLocation.trim() || null,
               invitationTime: invitationTime || null,
               invitationType:
@@ -536,6 +620,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
       editingId,
       name,
       address,
+      phone,
       weddingLocation,
       invitationTime,
       invitationType,
@@ -697,6 +782,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
                 body: JSON.stringify({
                   name: g.name,
                   address: g.address ?? null,
+                  phone: g.phone ?? null,
                   weddingLocation: g.weddingLocation ?? null,
                   invitationTime: newTime || null,
                   invitationType: g.invitationType ?? "digital",
@@ -841,6 +927,20 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
                 >
                   <Label>Alamat Tamu</Label>
                   <Input variant="secondary" placeholder="Alamat" />
+                </TextField>
+                <TextField
+                  fullWidth
+                  name="phone"
+                  value={phone}
+                  onChange={setPhone}
+                >
+                  <Label>Nomor WhatsApp</Label>
+                  <Input
+                    variant="secondary"
+                    placeholder="Contoh: 0812… atau 62812…"
+                    inputMode="tel"
+                    autoComplete="tel"
+                  />
                 </TextField>
                 <RadioGroup
                   name="weddingLocation"
@@ -1192,6 +1292,26 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
+                {waNotice ? (
+                  <Card
+                    className="border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/80"
+                    variant="default"
+                  >
+                    <Card.Content className="flex flex-row items-start justify-between gap-2">
+                      <p className="text-sm text-amber-900 dark:text-amber-100">
+                        {waNotice}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onPress={() => setWaNotice(null)}
+                        className="shrink-0 text-amber-900 dark:text-amber-100"
+                      >
+                        Tutup
+                      </Button>
+                    </Card.Content>
+                  </Card>
+                ) : null}
                 <div className="shrink-0 overflow-hidden bg-linear-to-br from-default-50 to-default-100 pb-2 -mx-4 px-4">
                   {/* Mobile: stacked layout */}
                   <div className="flex flex-col gap-2 sm:hidden">
@@ -1567,45 +1687,58 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
                                 ] ?? "—",
                                 g.weddingLocation,
                                 g.address,
+                                g.phone?.trim(),
                                 getShiftLabelFromInvitationTime(g.invitationTime),
                               ]
                                 .filter(Boolean)
                                 .join(" · ")}
                             </p>
                           </div>
-                          <div className="flex shrink-0">
-                            <Dropdown>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                isIconOnly
-                                aria-label="Aksi"
-                                className="text-default-500"
-                              >
-                                <DotsIcon />
-                              </Button>
-                              <Dropdown.Popover className="min-w-[140px]">
-                                <Dropdown.Menu
-                                  onAction={(key) => {
-                                    if (key === "edit") startEdit(g);
-                                    else if (key === "delete")
-                                      openDeleteConfirm(g);
-                                  }}
+                          {showAdminTabs ? (
+                            <div className="flex shrink-0">
+                              <Dropdown>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  isIconOnly
+                                  aria-label="Aksi"
+                                  className="text-default-500"
                                 >
-                                  <Dropdown.Item id="edit" textValue="Ubah">
-                                    <Label>Ubah</Label>
-                                  </Dropdown.Item>
-                                  <Dropdown.Item
-                                    id="delete"
-                                    textValue="Hapus"
-                                    variant="danger"
+                                  <DotsIcon />
+                                </Button>
+                                <Dropdown.Popover className="min-w-[140px]">
+                                  <Dropdown.Menu
+                                    onAction={(key) => {
+                                      if (key === "edit") startEdit(g);
+                                      else if (key === "delete")
+                                        openDeleteConfirm(g);
+                                      else if (key === "whatsapp")
+                                        openDigitalWhatsappInvite(g);
+                                    }}
                                   >
-                                    <Label>Hapus</Label>
-                                  </Dropdown.Item>
-                                </Dropdown.Menu>
-                              </Dropdown.Popover>
-                            </Dropdown>
-                          </div>
+                                    <Dropdown.Item id="edit" textValue="Ubah">
+                                      <Label>Ubah</Label>
+                                    </Dropdown.Item>
+                                    {g.invitationType === "digital" ? (
+                                      <Dropdown.Item
+                                        id="whatsapp"
+                                        textValue="Kirim undangan WA"
+                                      >
+                                        <Label>Kirim undangan WA</Label>
+                                      </Dropdown.Item>
+                                    ) : null}
+                                    <Dropdown.Item
+                                      id="delete"
+                                      textValue="Hapus"
+                                      variant="danger"
+                                    >
+                                      <Label>Hapus</Label>
+                                    </Dropdown.Item>
+                                  </Dropdown.Menu>
+                                </Dropdown.Popover>
+                              </Dropdown>
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                       {hasMoreMobile ? (
@@ -1651,9 +1784,14 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
                             <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell">
                               Waktu
                             </th>
-                            <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-20">
-                              Aksi
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell max-w-[120px]">
+                              WhatsApp
                             </th>
+                            {showAdminTabs ? (
+                              <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 min-w-[108px]">
+                                Aksi
+                              </th>
+                            ) : null}
                           </tr>
                         </thead>
                         <tbody>
@@ -1688,30 +1826,50 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
                               <td className="py-2 px-3 text-default-600 hidden lg:table-cell">
                                 {getShiftLabelFromInvitationTime(g.invitationTime)}
                               </td>
-                              <td className="py-2 px-3 text-right">
-                                <div className="flex justify-end gap-0.5">
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    isIconOnly
-                                    onPress={() => startEdit(g)}
-                                    aria-label="Ubah tamu"
-                                    className="text-default-500 hover:text-foreground min-w-8 w-8"
-                                  >
-                                    <EditIcon />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    isIconOnly
-                                    onPress={() => openDeleteConfirm(g)}
-                                    aria-label="Hapus tamu"
-                                    className="text-default-400 hover:text-red-600 min-w-8 w-8"
-                                  >
-                                    <TrashIcon />
-                                  </Button>
-                                </div>
+                              <td
+                                className="py-2 px-3 text-default-600 hidden lg:table-cell max-w-[120px] truncate"
+                                title={g.phone?.trim() || undefined}
+                              >
+                                {g.phone?.trim() || "—"}
                               </td>
+                              {showAdminTabs ? (
+                                <td className="py-2 px-3 text-right">
+                                  <div className="flex justify-end gap-0.5">
+                                    {g.invitationType === "digital" ? (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        isIconOnly
+                                        onPress={() => openDigitalWhatsappInvite(g)}
+                                        aria-label={`Kirim undangan WhatsApp ke ${g.name}`}
+                                        className="text-emerald-600 hover:text-emerald-700 min-w-8 w-8"
+                                      >
+                                        <WaIcon />
+                                      </Button>
+                                    ) : null}
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      isIconOnly
+                                      onPress={() => startEdit(g)}
+                                      aria-label="Ubah tamu"
+                                      className="text-default-500 hover:text-foreground min-w-8 w-8"
+                                    >
+                                      <EditIcon />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      isIconOnly
+                                      onPress={() => openDeleteConfirm(g)}
+                                      aria-label="Hapus tamu"
+                                      className="text-default-400 hover:text-red-600 min-w-8 w-8"
+                                    >
+                                      <TrashIcon />
+                                    </Button>
+                                  </div>
+                                </td>
+                              ) : null}
                             </tr>
                           ))}
                         </tbody>
@@ -1808,7 +1966,7 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
               <Label className="sr-only">Cari tamu</Label>
               <Input
                 variant="secondary"
-                placeholder="Cari berdasarkan nama, alamat, atau lokasi…"
+                placeholder="Cari nama, alamat, lokasi, atau nomor WA…"
                 className="rounded-full border border-default-200 shadow-none"
               />
             </TextField>
@@ -1846,6 +2004,20 @@ export default function GuestManager({ showAdminTabs = false }: GuestManagerProp
                     >
                       <Label>Alamat</Label>
                       <Input variant="secondary" placeholder="Alamat" />
+                    </TextField>
+                    <TextField
+                      fullWidth
+                      name="edit-phone"
+                      value={phone}
+                      onChange={setPhone}
+                    >
+                      <Label>Nomor WhatsApp</Label>
+                      <Input
+                        variant="secondary"
+                        placeholder="Contoh: 0812… atau 62812…"
+                        inputMode="tel"
+                        autoComplete="tel"
+                      />
                     </TextField>
                     <RadioGroup
                       name="edit-weddingLocation"

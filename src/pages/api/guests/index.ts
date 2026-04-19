@@ -27,7 +27,7 @@ export const GET: APIRoute = async ({ request }) => {
 		if (search) {
 			const pattern = `%${search}%`;
 			conditions.push(
-				sql`(${guests.name} ILIKE ${pattern} OR COALESCE(${guests.address}, '')::text ILIKE ${pattern} OR COALESCE(${guests.weddingLocation}, '')::text ILIKE ${pattern})`,
+				sql`(${guests.name} ILIKE ${pattern} OR COALESCE(${guests.address}, '')::text ILIKE ${pattern} OR COALESCE(${guests.weddingLocation}, '')::text ILIKE ${pattern} OR COALESCE(${guests.phone}, '')::text ILIKE ${pattern})`,
 			);
 		}
 		if (location) {
@@ -101,7 +101,7 @@ export const POST: APIRoute = async ({ request }) => {
 			headers: { 'Content-Type': 'application/json' },
 		});
 	}
-	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string; guestType?: string; guestGroup?: string };
+	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string; guestType?: string; guestGroup?: string; phone?: string };
 	try {
 		body = await request.json();
 	} catch {
@@ -118,6 +118,7 @@ export const POST: APIRoute = async ({ request }) => {
 		});
 	}
 	const address = typeof body.address === 'string' ? body.address.trim() : null;
+	const phone = typeof body.phone === 'string' ? body.phone.trim() || null : null;
 	const weddingLocation = typeof body.weddingLocation === 'string' ? body.weddingLocation.trim() || null : null;
 	const invitationType = body.invitationType === 'physical' || body.invitationType === 'digital' ? body.invitationType : null;
 	const guestType = body.guestType === 'sekaliyan' || body.guestType === 'sendiri' ? body.guestType : null;
@@ -136,7 +137,7 @@ export const POST: APIRoute = async ({ request }) => {
 		}
 		const [created] = await db
 			.insert(guests)
-			.values({ name, address, weddingLocation, invitationTime, invitationType, guestType, guestGroup })
+			.values({ name, address, phone, weddingLocation, invitationTime, invitationType, guestType, guestGroup })
 			.returning();
 		return new Response(JSON.stringify(created), {
 			status: 201,

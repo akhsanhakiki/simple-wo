@@ -50,7 +50,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
 			headers: { 'Content-Type': 'application/json' },
 		});
 	}
-	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string; guestType?: string; guestGroup?: string };
+	let body: { name?: string; address?: string; weddingLocation?: string; invitationTime?: string; invitationType?: string; guestType?: string; guestGroup?: string; phone?: string };
 	try {
 		body = await request.json();
 	} catch {
@@ -67,6 +67,9 @@ export const PUT: APIRoute = async ({ params, request }) => {
 		});
 	}
 	const address = typeof body.address === 'string' ? body.address.trim() : undefined;
+	const phone = body.phone !== undefined
+		? (typeof body.phone === 'string' ? body.phone.trim() || null : null)
+		: undefined;
 	const weddingLocation = body.weddingLocation !== undefined
 		? (typeof body.weddingLocation === 'string' ? body.weddingLocation.trim() || null : null)
 		: undefined;
@@ -88,9 +91,10 @@ export const PUT: APIRoute = async ({ params, request }) => {
 	const guestGroup = body.guestGroup !== undefined
 		? (typeof body.guestGroup === 'string' ? body.guestGroup.trim() || null : null)
 		: undefined;
-	const updates: { name?: string; address?: string | null; weddingLocation?: string | null; invitationTime?: Date | null; invitationType?: string | null; guestType?: string | null; guestGroup?: string | null } = {};
+	const updates: { name?: string; address?: string | null; phone?: string | null; weddingLocation?: string | null; invitationTime?: Date | null; invitationType?: string | null; guestType?: string | null; guestGroup?: string | null } = {};
 	if (name !== undefined) updates.name = name;
 	if (address !== undefined) updates.address = address;
+	if (phone !== undefined) updates.phone = phone;
 	if (weddingLocation !== undefined) updates.weddingLocation = weddingLocation;
 	if (invitationTime !== undefined) updates.invitationTime = invitationTime;
 	if (invitationType !== undefined) updates.invitationType = invitationType;

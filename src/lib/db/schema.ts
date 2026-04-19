@@ -17,6 +17,7 @@ export const guests = pgTable('guests', {
 	invitationType: text('invitation_type'), // 'physical' | 'digital'
 	guestType: text('guest_type'), // 'sekaliyan' | 'sendiri'
 	guestGroup: text('guest_group'),
+	phone: text('phone'), // WhatsApp / contact (optional)
 });
 
 export type Guest = typeof guests.$inferSelect;
