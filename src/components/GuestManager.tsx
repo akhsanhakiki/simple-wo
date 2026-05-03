@@ -1,3 +1,8 @@
+/**
+ * Must be used as an Astro island with `client:only="react"` (not `client:load`).
+ * HeroUI Select/ComboBox wrap React Aria ListBox; SSR renders ListBox.Item without
+ * list state context and throws (cannot read selectionManager of null).
+ */
 import {
   Button,
   Card,
@@ -13,20 +18,30 @@ import {
   Surface,
   TextField,
   Spinner,
-  Tabs,
+  Switch,
 } from "@heroui/react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import type { EmojiClickData } from "emoji-picker-react";
+import { EmojiStyle, Theme, type EmojiClickData } from "emoji-picker-react";
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type FormEvent,
 } from "react";
+
+import type { GuestOverviewStats } from "../lib/guest-overview-stats";
+import {
+  getShiftKeyFromTime,
+  getShiftLabelFromInvitationTime,
+  SHIFT_OPTIONS,
+} from "../lib/guest-shift";
+import { OverviewMetrics } from "./OverviewMetrics";
 
 const EmojiPickerLazy = lazy(() => import("emoji-picker-react"));
 
@@ -89,30 +104,42 @@ const DEFAULT_INVITATION_TIME: Record<string, string> = {
   Magetan: "2026-08-01T00:00",
 };
 
-const SHIFT_OPTIONS = [
-  { value: "shift1", label: "Shift 1: 10.00 - 11.00", startTime: "10:00" },
-  { value: "shift2", label: "Shift 2: 11.00 - 12.30", startTime: "11:00" },
-  { value: "shift3", label: "Shift 3: 12.30 - 13.00", startTime: "12:30" },
-] as const;
-
-function getShiftKeyFromTime(iso: string | null): string {
-  if (!iso) return SHIFT_OPTIONS[0].value;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return SHIFT_OPTIONS[0].value;
-  const h = d.getHours();
-  const m = d.getMinutes();
-  if (h === 10 && m === 0) return "shift1";
-  if (h === 11 && m === 0) return "shift2";
-  if (h === 12 && m === 30) return "shift3";
-  return SHIFT_OPTIONS[0].value;
-}
-
-function getShiftLabelFromInvitationTime(iso: string | null): string {
-  const key = getShiftKeyFromTime(iso);
-  return SHIFT_OPTIONS.find((s) => s.value === key)?.label ?? "—";
-}
-
 const WA_INVITE_TEMPLATE_STORAGE_KEY = "simple-wo:wa-invite-template";
+
+const ADMIN_COOKIE_NAME = "simple_wo_admin";
+const ADMIN_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 14;
+
+/** Demo-only credentials (visible in the client bundle). Replace with real auth for production. */
+const ADMIN_LOGIN_USERNAME = "admin";
+const ADMIN_LOGIN_PASSWORD = "simplewo";
+
+/** Legacy sessionStorage key; migrated once to cookie on load. */
+const LEGACY_ADMIN_SESSION_STORAGE_KEY = "simple-wo:admin-session";
+
+function readAdminCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  try {
+    const prefix = `${ADMIN_COOKIE_NAME}=`;
+    for (const part of document.cookie.split(";").map((c) => c.trim())) {
+      if (!part.startsWith(prefix)) continue;
+      const value = part.slice(prefix.length);
+      if (value === "1" || decodeURIComponent(value) === "1") return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function writeAdminCookie(): void {
+  const secure =
+    typeof location !== "undefined" && location.protocol === "https:";
+  document.cookie = `${ADMIN_COOKIE_NAME}=1; Path=/; Max-Age=${ADMIN_COOKIE_MAX_AGE_SEC}; SameSite=Lax${secure ? "; Secure" : ""}`;
+}
+
+function clearAdminCookie(): void {
+  document.cookie = `${ADMIN_COOKIE_NAME}=; Path=/; Max-Age=0`;
+}
 
 /** Default WhatsApp body; use {{nama}}, {{lokasi}}, {{shift}}, {{tamu}}, {{undanganDigital}}. */
 const DEFAULT_WA_INVITE_TEMPLATE = `Assalamualaikum warahmatullahi wabarakatuh,
@@ -333,6 +360,24 @@ const WA_TEMPLATE_PLACEHOLDER_CHIPS: {
 
 const LIST_PAGE_SIZE = 15;
 
+const THEME_STORAGE_KEY = "simple-wo:theme";
+
+function readInitialDarkMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark") return true;
+    if (stored === "light") return false;
+  } catch {
+    /* ignore */
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function syncDarkClass(isDark: boolean) {
+  document.documentElement.classList.toggle("dark", isDark);
+}
+
 type GuestsResponse = {
   data: Guest[];
   total: number;
@@ -347,13 +392,7 @@ type GuestGroupWithCount = {
   guestCount: number;
 };
 
-type GuestManagerProps = {
-  showAdminTabs?: boolean;
-};
-
-export default function GuestManager({
-  showAdminTabs = false,
-}: GuestManagerProps) {
+export default function GuestManager() {
   const [listData, setListData] = useState<Guest[]>([]);
   const [totalFiltered, setTotalFiltered] = useState(0);
   const [totalAll, setTotalAll] = useState(0);
@@ -404,14 +443,22 @@ export default function GuestManager({
   const [groupFilter, setGroupFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
-  const [activeTab, setActiveTab] = useState<string>(
-    showAdminTabs ? "add" : "list",
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    readAdminCookie() ? "add" : "list",
   );
   const [exportPdfLoading, setExportPdfLoading] = useState(false);
   const [waInviteTemplate, setWaInviteTemplate] = useState(
     DEFAULT_WA_INVITE_TEMPLATE,
   );
   const [waTemplateModalOpen, setWaTemplateModalOpen] = useState(false);
+  const [addGuestModalOpen, setAddGuestModalOpen] = useState(false);
+  const [overviewStats, setOverviewStats] = useState<GuestOverviewStats | null>(
+    null,
+  );
+  const [overviewStatsLoading, setOverviewStatsLoading] = useState(false);
+  const [overviewStatsError, setOverviewStatsError] = useState<string | null>(
+    null,
+  );
   const [waTemplateDraft, setWaTemplateDraft] = useState(
     DEFAULT_WA_INVITE_TEMPLATE,
   );
@@ -419,6 +466,92 @@ export default function GuestManager({
   const [waTemplateEmojiView, setWaTemplateEmojiView] = useState(false);
   const waTemplateTextareaRef = useRef<HTMLTextAreaElement>(null);
   const refreshGroupViewAfterEditRef = useRef(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [adminLoginModalOpen, setAdminLoginModalOpen] = useState(false);
+  const [adminLoginUsername, setAdminLoginUsername] = useState("");
+  const [adminLoginPassword, setAdminLoginPassword] = useState("");
+  const [adminLoginError, setAdminLoginError] = useState<string | null>(null);
+  const [adminAuthenticated, setAdminAuthenticated] = useState(() =>
+    readAdminCookie(),
+  );
+  const showAdminUI = adminAuthenticated;
+
+  useEffect(() => {
+    if (!showAdminUI && activeTab !== "list") setActiveTab("list");
+  }, [showAdminUI, activeTab]);
+
+  useLayoutEffect(() => {
+    const next = readInitialDarkMode();
+    setIsDarkMode(next);
+    syncDarkClass(next);
+  }, []);
+
+  useLayoutEffect(() => {
+    const ok = readAdminCookie();
+    setAdminAuthenticated(ok);
+    if (!ok) setActiveTab("list");
+  }, []);
+
+  const handleDarkModeChange = useCallback((next: boolean) => {
+    setIsDarkMode(next);
+    syncDarkClass(next);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next ? "dark" : "light");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const closeAdminLoginModal = useCallback(() => {
+    setAdminLoginModalOpen(false);
+    setAdminLoginError(null);
+    setAdminLoginUsername("");
+    setAdminLoginPassword("");
+  }, []);
+
+  const openAdminLoginModal = useCallback(() => {
+    setAdminLoginError(null);
+    setAdminLoginModalOpen(true);
+  }, []);
+
+  const handleAdminLoginSubmit = useCallback(
+    (e: FormEvent) => {
+      e.preventDefault();
+      if (
+        adminLoginUsername.trim() === ADMIN_LOGIN_USERNAME &&
+        adminLoginPassword === ADMIN_LOGIN_PASSWORD
+      ) {
+        writeAdminCookie();
+        setAdminAuthenticated(true);
+        setActiveTab("add");
+        setAdminLoginError(null);
+        setAdminLoginUsername("");
+        setAdminLoginPassword("");
+        closeAdminLoginModal();
+        return;
+      }
+      setAdminLoginError("Nama pengguna atau kata sandi salah.");
+    },
+    [adminLoginUsername, adminLoginPassword, closeAdminLoginModal],
+  );
+
+  const handleAdminLogout = useCallback(() => {
+    clearAdminCookie();
+    setAdminAuthenticated(false);
+    setActiveTab("list");
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(LEGACY_ADMIN_SESSION_STORAGE_KEY) === "1") {
+        writeAdminCookie();
+        sessionStorage.removeItem(LEGACY_ADMIN_SESSION_STORAGE_KEY);
+        setAdminAuthenticated(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(searchQuery), 800);
@@ -508,6 +641,32 @@ export default function GuestManager({
   useEffect(() => {
     loadList();
   }, [loadList]);
+
+  const loadOverviewStats = useCallback(async () => {
+    setOverviewStatsLoading(true);
+    setOverviewStatsError(null);
+    try {
+      const params = new URLSearchParams();
+      if (locationFilter && locationFilter !== "all")
+        params.set("location", locationFilter);
+      const qs = params.toString();
+      const res = await fetch(`/api/guests/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new Error("failed");
+      const json = (await res.json()) as GuestOverviewStats;
+      setOverviewStats(json);
+    } catch {
+      setOverviewStatsError("Tidak dapat memuat ringkasan.");
+      setOverviewStats(null);
+    } finally {
+      setOverviewStatsLoading(false);
+    }
+  }, [locationFilter]);
+
+  useEffect(() => {
+    if (showAdminUI && activeTab === "add") {
+      void loadOverviewStats();
+    }
+  }, [showAdminUI, activeTab, loadOverviewStats]);
 
   const resetForm = useCallback(() => {
     setEditingId(null);
@@ -665,6 +824,7 @@ export default function GuestManager({
         if (!res.ok) return;
         resetForm();
         await loadList();
+        if (showAdminUI) await loadOverviewStats();
         refreshGroupViewAfterEditRef.current = true;
       } finally {
         setSubmitting(false);
@@ -682,6 +842,8 @@ export default function GuestManager({
       guestGroup,
       resetForm,
       loadList,
+      showAdminUI,
+      loadOverviewStats,
     ],
   );
 
@@ -870,7 +1032,9 @@ export default function GuestManager({
           if (!res.ok) return;
         }
         resetForm();
+        setAddGuestModalOpen(false);
         await loadList();
+        if (showAdminUI) await loadOverviewStats();
       } finally {
         setSubmitting(false);
       }
@@ -887,6 +1051,8 @@ export default function GuestManager({
       guestGroup,
       resetForm,
       loadList,
+      showAdminUI,
+      loadOverviewStats,
     ],
   );
 
@@ -896,7 +1062,11 @@ export default function GuestManager({
     setGroupsLoading(true);
     setGroupsError(null);
     try {
-      const res = await fetch("/api/guest-groups");
+      const params = new URLSearchParams();
+      if (locationFilter && locationFilter !== "all")
+        params.set("location", locationFilter);
+      const qs = params.toString();
+      const res = await fetch(`/api/guest-groups${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new Error("Failed to load groups");
       const data = (await res.json()) as GuestGroupWithCount[];
       setGroupsList(data);
@@ -905,37 +1075,44 @@ export default function GuestManager({
     } finally {
       setGroupsLoading(false);
     }
-  }, []);
+  }, [locationFilter]);
 
   useEffect(() => {
-    if (activeTab === "groups") loadGroups();
-  }, [activeTab, loadGroups]);
+    if (showAdminUI && activeTab === "groups") loadGroups();
+  }, [showAdminUI, activeTab, loadGroups]);
 
-  const loadGuestsForGroup = useCallback(async (groupName: string) => {
-    setGroupGuestsLoading(true);
-    try {
-      const params = new URLSearchParams({
-        guestGroup: groupName,
-        limit: "500",
-      });
-      const res = await fetch(`/api/guests?${params}`);
-      if (!res.ok) throw new Error("Failed to load guests");
-      const json = (await res.json()) as GuestsResponse;
-      setGroupGuests(json.data);
-    } catch {
-      setGroupGuests([]);
-    } finally {
-      setGroupGuestsLoading(false);
-    }
-  }, []);
-
-  const selectGroupForPanel = useCallback(
-    (g: GuestGroupWithCount) => {
-      setExpandedGroupId(g.id);
-      loadGuestsForGroup(g.name);
+  const loadGuestsForGroup = useCallback(
+    async (groupName: string) => {
+      setGroupGuestsLoading(true);
+      try {
+        const params = new URLSearchParams({
+          guestGroup: groupName,
+          limit: "500",
+        });
+        if (locationFilter && locationFilter !== "all")
+          params.set("location", locationFilter);
+        const res = await fetch(`/api/guests?${params}`);
+        if (!res.ok) throw new Error("Failed to load guests");
+        const json = (await res.json()) as GuestsResponse;
+        setGroupGuests(json.data);
+      } catch {
+        setGroupGuests([]);
+      } finally {
+        setGroupGuestsLoading(false);
+      }
     },
-    [loadGuestsForGroup],
+    [locationFilter],
   );
+
+  useEffect(() => {
+    if (expandedGroupId == null) return;
+    const group = groupsList.find((x) => x.id === expandedGroupId);
+    if (group) void loadGuestsForGroup(group.name);
+  }, [expandedGroupId, groupsList, loadGuestsForGroup]);
+
+  const selectGroupForPanel = useCallback((g: GuestGroupWithCount) => {
+    setExpandedGroupId(g.id);
+  }, []);
 
   const closeGroupPanel = useCallback(() => {
     setExpandedGroupId(null);
@@ -967,7 +1144,7 @@ export default function GuestManager({
   }, []);
 
   const handleAddGroup = useCallback(
-    async (e: React.FormEvent) => {
+    async (e: FormEvent) => {
       e.preventDefault();
       const trimmed = newGroupName.trim();
       if (!trimmed) return;
@@ -986,11 +1163,19 @@ export default function GuestManager({
         closeAddGroup();
         await loadGroups();
         await loadList();
+        if (showAdminUI) await loadOverviewStats();
       } finally {
         setAddGroupSubmitting(false);
       }
     },
-    [newGroupName, closeAddGroup, loadGroups, loadList],
+    [
+      newGroupName,
+      closeAddGroup,
+      loadGroups,
+      loadList,
+      showAdminUI,
+      loadOverviewStats,
+    ],
   );
 
   const openRenameGroup = useCallback((g: GuestGroupWithCount) => {
@@ -1060,6 +1245,7 @@ export default function GuestManager({
         closeRenameGroup();
         await loadGroups();
         await loadList();
+        if (showAdminUI) await loadOverviewStats();
       } finally {
         setRenameGroupSubmitting(false);
       }
@@ -1071,6 +1257,8 @@ export default function GuestManager({
       closeRenameGroup,
       loadGroups,
       loadList,
+      showAdminUI,
+      loadOverviewStats,
     ],
   );
 
@@ -1094,10 +1282,18 @@ export default function GuestManager({
       closeDeleteGroupConfirm();
       await loadGroups();
       await loadList();
+      if (showAdminUI) await loadOverviewStats();
     } finally {
       setDeleteGroupSubmitting(false);
     }
-  }, [deleteGroupConfirm, closeDeleteGroupConfirm, loadGroups, loadList]);
+  }, [
+    deleteGroupConfirm,
+    closeDeleteGroupConfirm,
+    loadGroups,
+    loadList,
+    showAdminUI,
+    loadOverviewStats,
+  ]);
 
   const openDeleteConfirm = useCallback((g: Guest) => {
     setDeleteConfirmGuest(g);
@@ -1115,6 +1311,7 @@ export default function GuestManager({
       const res = await fetch(`/api/guests/${guest.id}`, { method: "DELETE" });
       if (!res.ok) return;
       await loadList();
+      if (showAdminUI) await loadOverviewStats();
       if (expandedGroupId != null) {
         const group = groupsList.find((x) => x.id === expandedGroupId);
         if (group) loadGuestsForGroup(group.name);
@@ -1129,6 +1326,8 @@ export default function GuestManager({
     deleteConfirmGuest,
     editingId,
     loadList,
+    loadOverviewStats,
+    showAdminUI,
     loadGroups,
     expandedGroupId,
     groupsList,
@@ -1137,454 +1336,390 @@ export default function GuestManager({
     closeDeleteConfirm,
   ]);
 
-  return (
-    <div className="flex min-h-dvh max-h-dvh flex-col overflow-x-hidden bg-linear-to-br from-default-50 to-default-100 py-4 px-4">
-      <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-6">
-        <header className="flex shrink-0 flex-col items-center justify-center overflow-hidden text-center bg-linear-to-br from-default-50 to-default-100">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Daftar tamu undangan
-          </h1>
-          <p className="mt-1 text-default-500 text-xs">
-            Made with{" "}
-            <span role="img" aria-label="heart">
-              ❤️
-            </span>{" "}
-            by Haki Studio
-          </p>
-          <p className="pt-2 text-gray-400 text-xs" aria-live="polite">
-            Total: {totalAll} tamu undangan
-          </p>
-        </header>
-
-        <Tabs
-          className="flex min-h-0 w-full flex-1 flex-col"
-          selectedKey={activeTab}
-          onSelectionChange={(key) => {
-            const next =
-              key === null ? (showAdminTabs ? "add" : "list") : String(key);
-            if (!showAdminTabs && next !== "list") return;
-            setActiveTab(next);
-          }}
+  const renderAddGuestForm = () => (
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-4 max-w-4xl w-full"
+    >
+      <TextField
+        isRequired
+        fullWidth
+        name="name"
+        value={name}
+        onChange={setName}
+      >
+        <Label>Nama</Label>
+        <Input variant="secondary" placeholder="Nama tamu" />
+      </TextField>
+      <TextField fullWidth name="address" value={address} onChange={setAddress}>
+        <Label>Alamat Tamu</Label>
+        <Input variant="secondary" placeholder="Alamat" />
+      </TextField>
+      <TextField fullWidth name="phone" value={phone} onChange={setPhone}>
+        <Label>Nomor WhatsApp</Label>
+        <Input
+          variant="secondary"
+          placeholder="Contoh: 0812… atau 62812…"
+          inputMode="tel"
+          autoComplete="tel"
+        />
+      </TextField>
+      <RadioGroup
+        name="weddingLocation"
+        value={weddingLocation}
+        onChange={handleWeddingLocationChange}
+        variant="secondary"
+        orientation="horizontal"
+        className="mt-2"
+      >
+        <Label>Lokasi resepsi</Label>
+        <Radio value="Semarang">
+          <Radio.Control>
+            <Radio.Indicator />
+          </Radio.Control>
+          <Radio.Content>
+            <Label>Semarang</Label>
+          </Radio.Content>
+        </Radio>
+        <Radio value="Magetan">
+          <Radio.Control>
+            <Radio.Indicator />
+          </Radio.Control>
+          <Radio.Content>
+            <Label>Magetan</Label>
+          </Radio.Content>
+        </Radio>
+      </RadioGroup>
+      <Select
+        fullWidth
+        name="invitationTime"
+        placeholder="Pilih shift"
+        variant="secondary"
+        value={getShiftKeyFromTime(invitationTime || null)}
+        onChange={(key) =>
+          setInvitationTime(
+            applyShiftToInvitationTime(
+              invitationTime,
+              weddingLocation,
+              String(key ?? "shift1"),
+            ),
+          )
+        }
+      >
+        <Label>Waktu undangan (Shift)</Label>
+        <Select.Trigger>
+          <Select.Value />
+          <Select.Indicator />
+        </Select.Trigger>
+        <Select.Popover>
+          <ListBox>
+            {SHIFT_OPTIONS.map((opt) => (
+              <ListBox.Item
+                key={opt.value}
+                id={opt.value}
+                textValue={opt.label}
+              >
+                {opt.label}
+                <ListBox.ItemIndicator />
+              </ListBox.Item>
+            ))}
+          </ListBox>
+        </Select.Popover>
+      </Select>
+      <RadioGroup
+        name="invitationType"
+        value={invitationType}
+        onChange={setInvitationType}
+        variant="secondary"
+        orientation="horizontal"
+      >
+        <Label>Tipe undangan</Label>
+        <Radio value="digital">
+          <Radio.Control>
+            <Radio.Indicator />
+          </Radio.Control>
+          <Radio.Content>
+            <Label>Digital</Label>
+          </Radio.Content>
+        </Radio>
+        <Radio value="physical">
+          <Radio.Control>
+            <Radio.Indicator />
+          </Radio.Control>
+          <Radio.Content>
+            <Label>Fisik</Label>
+          </Radio.Content>
+        </Radio>
+      </RadioGroup>
+      <RadioGroup
+        name="guestType"
+        value={guestType}
+        onChange={setGuestType}
+        variant="secondary"
+        orientation="horizontal"
+      >
+        <Label>Tamu</Label>
+        <Radio value="sendiri">
+          <Radio.Control>
+            <Radio.Indicator />
+          </Radio.Control>
+          <Radio.Content>
+            <Label>Sendiri</Label>
+          </Radio.Content>
+        </Radio>
+        <Radio value="sekaliyan">
+          <Radio.Control>
+            <Radio.Indicator />
+          </Radio.Control>
+          <Radio.Content>
+            <Label>Sekaliyan</Label>
+          </Radio.Content>
+        </Radio>
+      </RadioGroup>
+      <ComboBox
+        fullWidth
+        allowsCustomValue
+        inputValue={guestGroup}
+        onInputChange={setGuestGroup}
+        selectedKey={guestGroup || null}
+        onSelectionChange={(key) =>
+          setGuestGroup(key != null ? String(key) : "")
+        }
+        className="w-full"
+      >
+        <Label>Grup tamu</Label>
+        <ComboBox.InputGroup>
+          <Input placeholder="Pilih atau ketik grup baru..." />
+          <ComboBox.Trigger />
+        </ComboBox.InputGroup>
+        <ComboBox.Popover>
+          <ListBox>
+            {guestGroupOptions.map((opt) => (
+              <ListBox.Item key={opt} id={opt} textValue={opt}>
+                {opt}
+                <ListBox.ItemIndicator />
+              </ListBox.Item>
+            ))}
+          </ListBox>
+        </ComboBox.Popover>
+      </ComboBox>
+      <div className="flex flex-col gap-3 pt-2 w-full">
+        <Button
+          type="submit"
+          isPending={submitting}
+          variant="primary"
+          className="w-full"
         >
-          {showAdminTabs ? (
-            <Tabs.ListContainer className="shrink-0 overflow-hidden bg-linear-to-br from-default-50 to-default-100 pb-2 -mx-4 px-4">
-              <Tabs.List aria-label="Kelola tamu">
-                <Tabs.Tab id="add">
-                  Tambah tamu
-                  <Tabs.Indicator />
-                </Tabs.Tab>
-                <Tabs.Tab id="list">
-                  Tamu undangan
-                  <Tabs.Indicator />
-                </Tabs.Tab>
-                <Tabs.Tab id="groups">
-                  Grup tamu
-                  <Tabs.Indicator />
-                </Tabs.Tab>
-              </Tabs.List>
-            </Tabs.ListContainer>
-          ) : null}
-          {showAdminTabs ? (
-            <Tabs.Panel
-              id="add"
-              className="flex min-h-0 flex-1 flex-col overflow-auto pt-2"
-            >
-              <div className="flex w-full flex-col gap-5 items-center justify-center">
-                <form
-                  onSubmit={handleSubmit}
-                  className="flex flex-col gap-4 max-w-4xl w-full"
+          {({ isPending }) =>
+            isPending
+              ? editingId
+                ? "Menyimpan…"
+                : "Menambahkan…"
+              : editingId
+                ? "Simpan"
+                : "Tambah tamu"
+          }
+        </Button>
+        {editingId ? (
+          <Button type="button" variant="secondary" onPress={resetForm}>
+            Batal
+          </Button>
+        ) : null}
+      </div>
+    </form>
+  );
+
+  return (
+    <div className="flex min-h-dvh max-h-dvh flex-col overflow-x-hidden bg-linear-to-br from-default-50 to-default-100 py-4 px-4 dark:from-default-100 dark:to-default-200">
+      <div className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-3">
+        <div className="flex min-h-0 w-full flex-1 flex-col">
+          <header className="grid w-full shrink-0 grid-cols-1 items-center gap-3 border-b border-default-200/60 pb-3 sm:grid-cols-[1fr_auto_1fr] sm:gap-2">
+            <div className="flex min-w-0 items-center justify-center gap-2 sm:justify-start">
+              <img
+                src="/hakistd.svg"
+                alt=""
+                aria-hidden
+                className="h-8 w-auto shrink-0 object-contain brightness-0 dark:brightness-100"
+              />
+              <span className="truncate text-sm font-semibold tracking-tight text-foreground">
+                Guests Manager
+              </span>
+            </div>
+            <div className="flex min-w-0 justify-center justify-self-center px-1">
+              {showAdminUI ? (
+                <nav
+                  className="mx-auto flex w-full max-w-md flex-nowrap gap-0.5 overflow-x-auto rounded-lg bg-default-100/80 p-1 dark:bg-default-100/40"
+                  aria-label="Main navigation"
                 >
-                  <TextField
-                    isRequired
-                    fullWidth
-                    name="name"
-                    value={name}
-                    onChange={setName}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("add")}
+                    aria-current={activeTab === "add" ? "page" : undefined}
+                    className={`min-w-0 shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                      activeTab === "add"
+                        ? "bg-white text-foreground shadow-sm dark:bg-default-200"
+                        : "text-default-600 hover:text-foreground"
+                    }`}
                   >
-                    <Label>Nama</Label>
-                    <Input variant="secondary" placeholder="Nama tamu" />
-                  </TextField>
-                  <TextField
-                    fullWidth
-                    name="address"
-                    value={address}
-                    onChange={setAddress}
+                    Metrik
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("list")}
+                    aria-current={activeTab === "list" ? "page" : undefined}
+                    className={`min-w-0 shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                      activeTab === "list"
+                        ? "bg-white text-foreground shadow-sm dark:bg-default-200"
+                        : "text-default-600 hover:text-foreground"
+                    }`}
                   >
-                    <Label>Alamat Tamu</Label>
-                    <Input variant="secondary" placeholder="Alamat" />
-                  </TextField>
-                  <TextField
-                    fullWidth
-                    name="phone"
-                    value={phone}
-                    onChange={setPhone}
+                    Guests
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("groups")}
+                    aria-current={activeTab === "groups" ? "page" : undefined}
+                    className={`min-w-0 shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                      activeTab === "groups"
+                        ? "bg-white text-foreground shadow-sm dark:bg-default-200"
+                        : "text-default-600 hover:text-foreground"
+                    }`}
                   >
-                    <Label>Nomor WhatsApp</Label>
-                    <Input
-                      variant="secondary"
-                      placeholder="Contoh: 0812… atau 62812…"
-                      inputMode="tel"
-                      autoComplete="tel"
-                    />
-                  </TextField>
-                  <RadioGroup
-                    name="weddingLocation"
-                    value={weddingLocation}
-                    onChange={handleWeddingLocationChange}
-                    variant="secondary"
-                    orientation="horizontal"
-                    className="mt-2"
-                  >
-                    <Label>Lokasi resepsi</Label>
-                    <Radio value="Semarang">
-                      <Radio.Control>
-                        <Radio.Indicator />
-                      </Radio.Control>
-                      <Radio.Content>
-                        <Label>Semarang</Label>
-                      </Radio.Content>
-                    </Radio>
-                    <Radio value="Magetan">
-                      <Radio.Control>
-                        <Radio.Indicator />
-                      </Radio.Control>
-                      <Radio.Content>
-                        <Label>Magetan</Label>
-                      </Radio.Content>
-                    </Radio>
-                  </RadioGroup>
-                  <Select
-                    fullWidth
-                    name="invitationTime"
-                    placeholder="Pilih shift"
-                    variant="secondary"
-                    value={getShiftKeyFromTime(invitationTime || null)}
-                    onChange={(key) =>
-                      setInvitationTime(
-                        applyShiftToInvitationTime(
-                          invitationTime,
-                          weddingLocation,
-                          String(key ?? "shift1"),
-                        ),
-                      )
-                    }
-                  >
-                    <Label>Waktu undangan (Shift)</Label>
-                    <Select.Trigger>
-                      <Select.Value />
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {SHIFT_OPTIONS.map((opt) => (
-                          <ListBox.Item
-                            key={opt.value}
-                            id={opt.value}
-                            textValue={opt.label}
-                          >
-                            {opt.label}
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
-                  <RadioGroup
-                    name="invitationType"
-                    value={invitationType}
-                    onChange={setInvitationType}
-                    variant="secondary"
-                    orientation="horizontal"
-                  >
-                    <Label>Tipe undangan</Label>
-                    <Radio value="digital">
-                      <Radio.Control>
-                        <Radio.Indicator />
-                      </Radio.Control>
-                      <Radio.Content>
-                        <Label>Digital</Label>
-                      </Radio.Content>
-                    </Radio>
-                    <Radio value="physical">
-                      <Radio.Control>
-                        <Radio.Indicator />
-                      </Radio.Control>
-                      <Radio.Content>
-                        <Label>Fisik</Label>
-                      </Radio.Content>
-                    </Radio>
-                  </RadioGroup>
-                  <RadioGroup
-                    name="guestType"
-                    value={guestType}
-                    onChange={setGuestType}
-                    variant="secondary"
-                    orientation="horizontal"
-                  >
-                    <Label>Tamu</Label>
-                    <Radio value="sendiri">
-                      <Radio.Control>
-                        <Radio.Indicator />
-                      </Radio.Control>
-                      <Radio.Content>
-                        <Label>Sendiri</Label>
-                      </Radio.Content>
-                    </Radio>
-                    <Radio value="sekaliyan">
-                      <Radio.Control>
-                        <Radio.Indicator />
-                      </Radio.Control>
-                      <Radio.Content>
-                        <Label>Sekaliyan</Label>
-                      </Radio.Content>
-                    </Radio>
-                  </RadioGroup>
-                  <ComboBox
-                    fullWidth
-                    allowsCustomValue
-                    inputValue={guestGroup}
-                    onInputChange={setGuestGroup}
-                    selectedKey={guestGroup || null}
-                    onSelectionChange={(key) =>
-                      setGuestGroup(key != null ? String(key) : "")
-                    }
-                    className="w-full"
-                  >
-                    <Label>Grup tamu</Label>
-                    <ComboBox.InputGroup>
-                      <Input placeholder="Pilih atau ketik grup baru..." />
-                      <ComboBox.Trigger />
-                    </ComboBox.InputGroup>
-                    <ComboBox.Popover>
-                      <ListBox>
-                        {guestGroupOptions.map((opt) => (
-                          <ListBox.Item key={opt} id={opt} textValue={opt}>
-                            {opt}
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </ComboBox.Popover>
-                  </ComboBox>
-                  <div className="flex flex-col gap-3 pt-2 w-full">
-                    <Button
-                      type="submit"
-                      isPending={submitting}
-                      variant="primary"
-                      className="w-full"
-                    >
-                      {({ isPending }) =>
-                        isPending
-                          ? editingId
-                            ? "Menyimpan…"
-                            : "Menambahkan…"
-                          : editingId
-                            ? "Simpan"
-                            : "Tambah tamu"
-                      }
-                    </Button>
-                    {editingId ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onPress={resetForm}
-                      >
-                        Batal
-                      </Button>
-                    ) : null}
-                  </div>
-                </form>
-              </div>
-            </Tabs.Panel>
-          ) : null}
-          {showAdminTabs ? (
-            <Tabs.Panel
-              id="groups"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2"
-            >
-              <div className="flex flex-1 min-h-0 gap-4 w-full max-w-full mx-auto">
-                <div className="flex flex-col gap-4 min-w-0 flex-1">
-                  <div className="flex flex-row items-center justify-between gap-2">
-                    <h2 className="text-lg font-medium text-foreground">
-                      Daftar grup tamu
-                    </h2>
-                    <Button variant="primary" onPress={openAddGroup}>
-                      Tambah grup
-                    </Button>
-                  </div>
-                  {groupsError ? (
-                    <Card
-                      className="border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950"
-                      variant="default"
-                    >
-                      <Card.Content>
-                        <p className="text-red-700 dark:text-red-300">
-                          {groupsError}
-                        </p>
-                      </Card.Content>
-                    </Card>
-                  ) : groupsLoading ? (
-                    <div className="flex items-center gap-2 text-default-500">
-                      <Spinner size="sm" />
-                      <span>Memuat…</span>
-                    </div>
-                  ) : groupsList.length === 0 ? (
-                    <Card variant="secondary" className="p-6">
-                      <Card.Content>
-                        <p className="text-default-500">
-                          Belum ada grup. Klik &quot;Tambah grup&quot; untuk
-                          membuat.
-                        </p>
-                      </Card.Content>
-                    </Card>
-                  ) : (
-                    <div className="rounded-lg border border-default-200/60 bg-default-50/30 overflow-hidden flex-1 min-h-0 flex flex-col">
-                      <div className="overflow-auto min-h-0">
-                        <table className="w-full border-collapse text-sm">
-                          <thead className="bg-default-100/95 border-b border-default-200/60 sticky top-0">
-                            <tr>
-                              <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500">
-                                Grup
-                              </th>
-                              <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-24">
-                                Tamu
-                              </th>
-                              <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-32">
-                                Aksi
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {groupsList.map((g) => (
-                              <tr
-                                key={g.id}
-                                className={`border-b border-default-200/40 last:border-b-0 hover:bg-default-100/50 cursor-pointer ${expandedGroupId === g.id ? "bg-default-200/50" : ""}`}
-                                onClick={() => selectGroupForPanel(g)}
-                              >
-                                <td className="py-2 px-3 font-medium text-foreground">
-                                  {g.name}
-                                </td>
-                                <td className="py-2 px-3 text-right tabular-nums text-default-600">
-                                  {g.guestCount}
-                                </td>
-                                <td
-                                  className="py-2 px-3 text-right"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <div className="flex justify-end gap-0.5">
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      isIconOnly
-                                      onPress={() => openRenameGroup(g)}
-                                      aria-label="Ubah nama grup"
-                                      className="text-default-500 hover:text-foreground min-w-8 w-8"
-                                    >
-                                      <EditIcon />
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      isIconOnly
-                                      onPress={() => openDeleteGroupConfirm(g)}
-                                      aria-label="Hapus grup"
-                                      className="text-default-400 hover:text-red-600 min-w-8 w-8"
-                                    >
-                                      <TrashIcon />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {expandedGroupId != null ? (
-                  <aside className="w-full sm:min-w-80 sm:flex-1 min-w-0 flex flex-col rounded-lg border border-default-200/60 bg-default-50/50 overflow-hidden min-h-0">
-                    <div className="shrink-0 flex items-center justify-between gap-2 py-3 px-3 border-b border-default-200/60 bg-default-100/80">
-                      <h3 className="text-sm font-medium text-foreground truncate">
-                        {groupsList.find((x) => x.id === expandedGroupId)
-                          ?.name ?? "Grup"}
-                      </h3>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        isIconOnly
-                        onPress={closeGroupPanel}
-                        aria-label="Tutup panel"
-                        className="text-default-500 hover:text-foreground min-w-8 w-8"
-                      >
-                        <CloseIcon />
-                      </Button>
-                    </div>
-                    <div className="flex-1 min-h-0 overflow-auto p-3">
-                      {groupGuestsLoading ? (
-                        <div className="flex items-center gap-2 text-default-500 text-sm">
-                          <Spinner size="sm" />
-                          <span>Memuat daftar tamu…</span>
-                        </div>
-                      ) : groupGuests.length === 0 ? (
-                        <p className="text-sm text-default-500">
-                          Tidak ada tamu dalam grup ini.
-                        </p>
+                    Group
+                  </button>
+                </nav>
+              ) : (
+                <span className="text-sm font-medium text-default-600 dark:text-default-400">
+                  Guests
+                </span>
+              )}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 sm:justify-end sm:justify-self-end">
+              <Select
+                className="w-[min(200px,55vw)] shrink-0 sm:w-[160px]"
+                placeholder="Lokasi"
+                variant="secondary"
+                value={locationFilter === "" ? "all" : locationFilter}
+                onChange={(key) =>
+                  setLocationFilter(
+                    key === "all" || key === null ? "" : String(key),
+                  )
+                }
+              >
+                <Label className="sr-only">Lokasi</Label>
+                <Select.Trigger>
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>
+                    <ListBox.Item id="all" textValue="Semua lokasi">
+                      <span className="text-sm">Semua Lokasi</span>
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                    {uniqueLocations.map((loc) => (
+                      <ListBox.Item key={loc} id={loc} textValue={loc}>
+                        {loc}
+                        <ListBox.ItemIndicator />
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </Select.Popover>
+              </Select>
+              <Switch
+                size="sm"
+                isSelected={isDarkMode}
+                onChange={handleDarkModeChange}
+                aria-label={
+                  isDarkMode ? "Switch to light mode" : "Switch to dark mode"
+                }
+              >
+                <Switch.Control className="shrink-0">
+                  <Switch.Thumb>
+                    <Switch.Icon>
+                      {isDarkMode ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <circle cx="12" cy="12" r="4" />
+                          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                        </svg>
                       ) : (
-                        <ul className="text-sm text-foreground space-y-1">
-                          {groupGuests.map((guest) => (
-                            <li
-                              key={guest.id}
-                              className="flex items-center justify-between gap-2 py-2 px-2 rounded-md hover:bg-default-100/50"
-                            >
-                              <span className="min-w-0 truncate">
-                                {guest.name}
-                                {guest.address ? (
-                                  <span className="text-default-500 block truncate text-xs mt-0.5">
-                                    {" "}
-                                    — {guest.address}
-                                  </span>
-                                ) : null}
-                              </span>
-                              <div className="flex shrink-0 gap-0.5">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  isIconOnly
-                                  onPress={() => startEdit(guest)}
-                                  aria-label={`Ubah ${guest.name}`}
-                                  className="text-default-500 hover:text-foreground min-w-8 w-8"
-                                >
-                                  <EditIcon />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  isIconOnly
-                                  onPress={() => openDeleteConfirm(guest)}
-                                  aria-label={`Hapus ${guest.name}`}
-                                  className="text-default-400 hover:text-red-600 min-w-8 w-8"
-                                >
-                                  <TrashIcon />
-                                </Button>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+                        </svg>
                       )}
-                    </div>
-                  </aside>
-                ) : (
-                  <div className="hidden sm:flex w-80 shrink-0 items-center justify-center rounded-lg border border-dashed border-default-200/60 bg-default-50/30 text-default-500 text-sm">
-                    Klik grup untuk melihat isi
-                  </div>
-                )}
-              </div>
-            </Tabs.Panel>
-          ) : null}
-          <Tabs.Panel
-            id="list"
-            className="flex min-h-0 flex-1 flex-col overflow-hidden pt-2 pb-16 sm:pb-2"
+                    </Switch.Icon>
+                  </Switch.Thumb>
+                </Switch.Control>
+              </Switch>
+              {showAdminUI ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="shrink-0 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                  onPress={handleAdminLogout}
+                >
+                  Keluar
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="shrink-0 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide"
+                  onPress={openAdminLoginModal}
+                >
+                  Masuk admin
+                </Button>
+              )}
+              <span
+                className={
+                  showAdminUI
+                    ? "shrink-0 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary"
+                    : "shrink-0 rounded-full bg-default-200/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-default-700 dark:bg-default-300/40 dark:text-default-200"
+                }
+              >
+                {showAdminUI ? "Admin" : "User"}
+              </span>
+            </div>
+          </header>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {showAdminUI && (
+          <div
+            className={`min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pt-2 ${activeTab === "add" ? "flex" : "hidden"}`}
+          >
+            <div className="flex min-h-0 w-full flex-1 flex-col px-0 sm:px-1">
+              <OverviewMetrics
+                stats={overviewStats}
+                loading={overviewStatsLoading}
+                error={overviewStatsError}
+                onAddGuest={() => setAddGuestModalOpen(true)}
+              />
+            </div>
+          </div>
+          )}
+          <div
+            className={`min-h-0 flex-1 flex-col overflow-hidden pt-2 pb-16 sm:pb-2 ${activeTab === "list" ? "flex" : "hidden"}`}
           >
             {error ? (
               <Card
@@ -1626,37 +1761,6 @@ export default function GuestManager({
                   {/* Mobile: stacked layout */}
                   <div className="flex flex-col gap-2 sm:hidden">
                     <div className="flex flex-row items-center gap-2">
-                      <Select
-                        className="min-w-0 flex-1"
-                        placeholder="Lokasi"
-                        variant="secondary"
-                        value={locationFilter === "" ? "all" : locationFilter}
-                        onChange={(key) =>
-                          setLocationFilter(
-                            key === "all" || key === null ? "" : String(key),
-                          )
-                        }
-                      >
-                        <Label className="sr-only">Lokasi</Label>
-                        <Select.Trigger>
-                          <Select.Value />
-                          <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover>
-                          <ListBox>
-                            <ListBox.Item id="all" textValue="Semua lokasi">
-                              <span className="text-sm">Semua Lokasi</span>
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                            {uniqueLocations.map((loc) => (
-                              <ListBox.Item key={loc} id={loc} textValue={loc}>
-                                {loc}
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
-                            ))}
-                          </ListBox>
-                        </Select.Popover>
-                      </Select>
                       <Select
                         className="min-w-0 flex-1"
                         placeholder="Tipe undangan"
@@ -1763,15 +1867,26 @@ export default function GuestManager({
                         </Select.Popover>
                       </Select>
                     </div>
-                    <p
-                      className="text-default-500 text-xs text-center"
-                      aria-live="polite"
-                    >
-                      Total: {totalFiltered} tamu undangan
-                      {locationFilter && locationFilter !== "all"
-                        ? ` di ${locationFilter}`
-                        : ""}
-                    </p>
+                    {showAdminUI ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="w-full"
+                        onPress={() => setAddGuestModalOpen(true)}
+                      >
+                        Add Guest
+                      </Button>
+                    ) : (
+                      <p
+                        className="text-default-500 text-xs text-center"
+                        aria-live="polite"
+                      >
+                        Total: {totalFiltered} tamu undangan
+                        {locationFilter && locationFilter !== "all"
+                          ? ` di ${locationFilter}`
+                          : ""}
+                      </p>
+                    )}
                     {totalFiltered > 0 && (
                       <Button
                         size="sm"
@@ -1786,7 +1901,7 @@ export default function GuestManager({
                         Export PDF
                       </Button>
                     )}
-                    {showAdminTabs ? (
+                    {showAdminUI ? (
                       <Button
                         size="sm"
                         variant="secondary"
@@ -1944,15 +2059,26 @@ export default function GuestManager({
                         </ListBox>
                       </Select.Popover>
                     </Select>
-                    <p
-                      className="text-default-500 text-xs shrink-0 sm:ml-auto"
-                      aria-live="polite"
-                    >
-                      Total: {totalFiltered} tamu undangan
-                      {locationFilter && locationFilter !== "all"
-                        ? ` di ${locationFilter}`
-                        : ""}
-                    </p>
+                    {showAdminUI ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="shrink-0 sm:ml-auto"
+                        onPress={() => setAddGuestModalOpen(true)}
+                      >
+                        Add Guest
+                      </Button>
+                    ) : (
+                      <p
+                        className="text-default-500 text-xs shrink-0 sm:ml-auto"
+                        aria-live="polite"
+                      >
+                        Total: {totalFiltered} tamu undangan
+                        {locationFilter && locationFilter !== "all"
+                          ? ` di ${locationFilter}`
+                          : ""}
+                      </p>
+                    )}
                     {totalFiltered > 0 && (
                       <Button
                         size="sm"
@@ -1967,7 +2093,7 @@ export default function GuestManager({
                         Export PDF
                       </Button>
                     )}
-                    {showAdminTabs ? (
+                    {showAdminUI ? (
                       <Button
                         size="sm"
                         variant="secondary"
@@ -2030,7 +2156,7 @@ export default function GuestManager({
                                 .join(" · ")}
                             </p>
                           </div>
-                          {showAdminTabs ? (
+                          {showAdminUI ? (
                             <div className="flex shrink-0">
                               <Dropdown>
                                 <Button
@@ -2123,7 +2249,7 @@ export default function GuestManager({
                             <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500 hidden lg:table-cell max-w-[120px]">
                               WhatsApp
                             </th>
-                            {showAdminTabs ? (
+                            {showAdminUI ? (
                               <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 min-w-[108px]">
                                 Aksi
                               </th>
@@ -2173,7 +2299,7 @@ export default function GuestManager({
                               >
                                 {g.phone?.trim() || "—"}
                               </td>
-                              {showAdminTabs ? (
+                              {showAdminUI ? (
                                 <td className="py-2 px-3 text-right">
                                   <div className="flex justify-end gap-0.5">
                                     {g.invitationType === "digital" ? (
@@ -2305,8 +2431,193 @@ export default function GuestManager({
                 )}
               </div>
             )}
-          </Tabs.Panel>
-        </Tabs>
+          </div>
+          {showAdminUI && (
+          <div
+            className={`min-h-0 flex-1 flex-col overflow-hidden pt-2 ${activeTab === "groups" ? "flex" : "hidden"}`}
+          >
+            <div className="flex flex-1 min-h-0 gap-4 w-full max-w-full mx-auto">
+              <div className="flex flex-col gap-4 min-w-0 flex-1">
+                <div className="flex flex-row items-center justify-between gap-2">
+                  <h2 className="text-lg font-medium text-foreground">
+                    Daftar grup tamu
+                  </h2>
+                  <Button variant="primary" onPress={openAddGroup}>
+                    Tambah grup
+                  </Button>
+                </div>
+                {groupsError ? (
+                  <Card
+                    className="border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950"
+                    variant="default"
+                  >
+                    <Card.Content>
+                      <p className="text-red-700 dark:text-red-300">
+                        {groupsError}
+                      </p>
+                    </Card.Content>
+                  </Card>
+                ) : groupsLoading ? (
+                  <div className="flex items-center gap-2 text-default-500">
+                    <Spinner size="sm" />
+                    <span>Memuat…</span>
+                  </div>
+                ) : groupsList.length === 0 ? (
+                  <Card variant="secondary" className="p-6">
+                    <Card.Content>
+                      <p className="text-default-500">
+                        Belum ada grup. Klik &quot;Tambah grup&quot; untuk
+                        membuat.
+                      </p>
+                    </Card.Content>
+                  </Card>
+                ) : (
+                  <div className="rounded-lg border border-default-200/60 bg-default-50/30 overflow-hidden flex-1 min-h-0 flex flex-col">
+                    <div className="overflow-auto min-h-0">
+                      <table className="w-full border-collapse text-sm">
+                        <thead className="bg-default-100/95 border-b border-default-200/60 sticky top-0">
+                          <tr>
+                            <th className="text-left py-2.5 px-3 text-xs font-medium text-default-500">
+                              Grup
+                            </th>
+                            <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-24">
+                              Tamu
+                            </th>
+                            <th className="text-right py-2.5 px-3 text-xs font-medium text-default-500 w-32">
+                              Aksi
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupsList.map((g) => (
+                            <tr
+                              key={g.id}
+                              className={`border-b border-default-200/40 last:border-b-0 hover:bg-default-100/50 cursor-pointer ${expandedGroupId === g.id ? "bg-default-200/50" : ""}`}
+                              onClick={() => selectGroupForPanel(g)}
+                            >
+                              <td className="py-2 px-3 font-medium text-foreground">
+                                {g.name}
+                              </td>
+                              <td className="py-2 px-3 text-right tabular-nums text-default-600">
+                                {g.guestCount}
+                              </td>
+                              <td
+                                className="py-2 px-3 text-right"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="flex justify-end gap-0.5">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    isIconOnly
+                                    onPress={() => openRenameGroup(g)}
+                                    aria-label="Ubah nama grup"
+                                    className="text-default-500 hover:text-foreground min-w-8 w-8"
+                                  >
+                                    <EditIcon />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    isIconOnly
+                                    onPress={() => openDeleteGroupConfirm(g)}
+                                    aria-label="Hapus grup"
+                                    className="text-default-400 hover:text-red-600 min-w-8 w-8"
+                                  >
+                                    <TrashIcon />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+              {expandedGroupId != null ? (
+                <aside className="w-full sm:min-w-80 sm:flex-1 min-w-0 flex flex-col rounded-lg border border-default-200/60 bg-default-50/50 overflow-hidden min-h-0">
+                  <div className="shrink-0 flex items-center justify-between gap-2 py-3 px-3 border-b border-default-200/60 bg-default-100/80">
+                    <h3 className="text-sm font-medium text-foreground truncate">
+                      {groupsList.find((x) => x.id === expandedGroupId)?.name ??
+                        "Grup"}
+                    </h3>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      isIconOnly
+                      onPress={closeGroupPanel}
+                      aria-label="Tutup panel"
+                      className="text-default-500 hover:text-foreground min-w-8 w-8"
+                    >
+                      <CloseIcon />
+                    </Button>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-auto p-3">
+                    {groupGuestsLoading ? (
+                      <div className="flex items-center gap-2 text-default-500 text-sm">
+                        <Spinner size="sm" />
+                        <span>Memuat daftar tamu…</span>
+                      </div>
+                    ) : groupGuests.length === 0 ? (
+                      <p className="text-sm text-default-500">
+                        Tidak ada tamu dalam grup ini.
+                      </p>
+                    ) : (
+                      <ul className="text-sm text-foreground space-y-1">
+                        {groupGuests.map((guest) => (
+                          <li
+                            key={guest.id}
+                            className="flex items-center justify-between gap-2 py-2 px-2 rounded-md hover:bg-default-100/50"
+                          >
+                            <span className="min-w-0 truncate">
+                              {guest.name}
+                              {guest.address ? (
+                                <span className="text-default-500 block truncate text-xs mt-0.5">
+                                  {" "}
+                                  — {guest.address}
+                                </span>
+                              ) : null}
+                            </span>
+                            <div className="flex shrink-0 gap-0.5">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                isIconOnly
+                                onPress={() => startEdit(guest)}
+                                aria-label={`Ubah ${guest.name}`}
+                                className="text-default-500 hover:text-foreground min-w-8 w-8"
+                              >
+                                <EditIcon />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                isIconOnly
+                                onPress={() => openDeleteConfirm(guest)}
+                                aria-label={`Hapus ${guest.name}`}
+                                className="text-default-400 hover:text-red-600 min-w-8 w-8"
+                              >
+                                <TrashIcon />
+                              </Button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </aside>
+              ) : (
+                <div className="hidden sm:flex w-80 shrink-0 items-center justify-center rounded-lg border border-dashed border-default-200/60 bg-default-50/30 text-default-500 text-sm">
+                  Klik grup untuk melihat isi
+                </div>
+              )}
+            </div>
+          </div>
+          )}
+          </div>
+        </div>
 
         {activeTab === "list" ? (
           <div className="fixed bottom-0 left-0 right-0 z-10 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:hidden">
@@ -2397,8 +2708,8 @@ export default function GuestManager({
                           >
                             <EmojiPickerLazy
                               onEmojiClick={handleWaEmojiPicked}
-                              theme="light"
-                              emojiStyle="native"
+                              theme={Theme.LIGHT}
+                              emojiStyle={EmojiStyle.NATIVE}
                               width="100%"
                               height={540}
                               lazyLoadEmojis
@@ -2449,7 +2760,6 @@ export default function GuestManager({
                                     wrapWaTemplateSelection("*", "*")
                                   }
                                   aria-label="Tebal (*teks*)"
-                                  title="Tebal (*teks*)"
                                 >
                                   <WaToolbarBold />
                                 </Button>
@@ -2463,7 +2773,6 @@ export default function GuestManager({
                                     wrapWaTemplateSelection("_", "_")
                                   }
                                   aria-label="Miring (_teks_)"
-                                  title="Miring (_teks_)"
                                 >
                                   <WaToolbarItalic />
                                 </Button>
@@ -2477,7 +2786,6 @@ export default function GuestManager({
                                     wrapWaTemplateSelection("~", "~")
                                   }
                                   aria-label="Coret (~teks~)"
-                                  title="Coret (~teks~)"
                                 >
                                   <WaToolbarStrike />
                                 </Button>
@@ -2495,7 +2803,6 @@ export default function GuestManager({
                                     wrapWaTemplateSelection("`", "`")
                                   }
                                   aria-label="Monospace (`teks`)"
-                                  title="Monospace (`teks`)"
                                 >
                                   <WaToolbarCode />
                                 </Button>
@@ -2507,7 +2814,6 @@ export default function GuestManager({
                                   className="h-8 min-w-8 shrink-0 rounded-md text-foreground"
                                   onPress={wrapWaTemplateCodeBlock}
                                   aria-label="Blok monospace (tiga backtick)"
-                                  title="Blok monospace (```)"
                                 >
                                   <WaToolbarBlock />
                                 </Button>
@@ -2520,7 +2826,6 @@ export default function GuestManager({
                                 className="h-8 min-w-8 shrink-0 rounded-md text-foreground"
                                 onPress={openWaEmojiPanel}
                                 aria-label="Buka pemilih emoji"
-                                title="Pilih emoji"
                               >
                                 <EmojiFaceIcon />
                               </Button>
@@ -2540,7 +2845,7 @@ export default function GuestManager({
                                 onPress={() =>
                                   insertWaTemplateSnippet(chip.snippet)
                                 }
-                                title={`Sisipkan ${chip.snippet}`}
+                                aria-label={`Sisipkan ${chip.snippet}`}
                               >
                                 {chip.snippet}
                               </Button>
@@ -2632,6 +2937,25 @@ export default function GuestManager({
                     Simpan
                   </Button>
                 </Modal.Footer>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
+
+        <Modal>
+          <Modal.Backdrop
+            isOpen={addGuestModalOpen}
+            onOpenChange={(open) => !open && setAddGuestModalOpen(false)}
+          >
+            <Modal.Container>
+              <Modal.Dialog className="flex w-[calc(100vw-1.5rem)] max-h-[min(90dvh,900px)] max-w-4xl flex-col overflow-hidden sm:w-full">
+                <Modal.CloseTrigger />
+                <Modal.Header>
+                  <Modal.Heading>Tambah tamu</Modal.Heading>
+                </Modal.Header>
+                <Modal.Body className="min-h-0 overflow-y-auto px-3 pb-4 pt-2 sm:px-6">
+                  {renderAddGuestForm()}
+                </Modal.Body>
               </Modal.Dialog>
             </Modal.Container>
           </Modal.Backdrop>
@@ -2876,6 +3200,67 @@ export default function GuestManager({
                     {({ isPending }) => (isPending ? "Menghapus…" : "Hapus")}
                   </Button>
                 </Modal.Footer>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
+
+        <Modal>
+          <Modal.Backdrop
+            isOpen={adminLoginModalOpen}
+            onOpenChange={(open) => !open && closeAdminLoginModal()}
+          >
+            <Modal.Container>
+              <Modal.Dialog className="sm:max-w-sm">
+                <Modal.CloseTrigger />
+                <Modal.Header>
+                  <Modal.Heading>Masuk admin</Modal.Heading>
+                </Modal.Header>
+                <form onSubmit={handleAdminLoginSubmit}>
+                  <Modal.Body className="flex flex-col gap-4">
+                    {adminLoginError ? (
+                      <p className="text-sm text-red-700 dark:text-red-300">
+                        {adminLoginError}
+                      </p>
+                    ) : null}
+                    <TextField
+                      fullWidth
+                      name="adminUsername"
+                      value={adminLoginUsername}
+                      onChange={setAdminLoginUsername}
+                      autoComplete="username"
+                    >
+                      <Label>Nama pengguna</Label>
+                      <Input variant="secondary" placeholder="admin" />
+                    </TextField>
+                    <TextField
+                      fullWidth
+                      name="adminPassword"
+                      value={adminLoginPassword}
+                      onChange={setAdminLoginPassword}
+                      autoComplete="current-password"
+                    >
+                      <Label>Kata sandi</Label>
+                      <Input
+                        variant="secondary"
+                        type="password"
+                        placeholder="••••••••"
+                      />
+                    </TextField>
+                  </Modal.Body>
+                  <Modal.Footer className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onPress={closeAdminLoginModal}
+                    >
+                      Batal
+                    </Button>
+                    <Button type="submit" variant="primary">
+                      Masuk
+                    </Button>
+                  </Modal.Footer>
+                </form>
               </Modal.Dialog>
             </Modal.Container>
           </Modal.Backdrop>

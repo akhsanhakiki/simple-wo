@@ -1,8 +1,3 @@
 ---
-import Layout from '../layouts/Layout.astro';
-import GuestManager from '../components/GuestManager';
+return Astro.redirect('/', 302);
 ---
-
-<Layout>
-	<GuestManager client:load showAdminTabs={true} />
-</Layout>

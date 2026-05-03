@@ -4,5 +4,6 @@ import GuestManager from '../components/GuestManager';
 ---
 
 <Layout>
-	<GuestManager client:load showAdminTabs={false} />
+	{/* client:only — HeroUI Select/ComboBox (React Aria ListBox) require client context; SSR throws selectionManager null */}
+	<GuestManager client:only="react" />
 </Layout>

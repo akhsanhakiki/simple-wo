@@ -5,6 +5,19 @@ import '../styles/global.css';
 <html lang="id">
 	<head>
 		<meta charset="UTF-8" />
+		<script is:inline>
+			(function () {
+				try {
+					var k = "simple-wo:theme";
+					var s = localStorage.getItem(k);
+					var dark =
+						s === "dark" ||
+						(s !== "light" &&
+							window.matchMedia("(prefers-color-scheme: dark)").matches);
+					document.documentElement.classList.toggle("dark", dark);
+				} catch {}
+			})();
+		</script>
 		<meta name="viewport" content="width=device-width" />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<link rel="icon" href="/favicon.ico" />
