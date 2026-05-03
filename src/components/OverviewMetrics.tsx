@@ -119,137 +119,6 @@ function IconTrendingUp({ size = 14, className, ...p }: IconProps) {
   );
 }
 
-function IconAlertCircle({ size = 20, className, ...p }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-      {...p}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" x2="12" y1="8" y2="12" />
-      <line x1="12" x2="12.01" y1="16" y2="16" />
-    </svg>
-  );
-}
-
-function IconInfo({ size = 20, className, ...p }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-      {...p}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 16v-4M12 8h.01" />
-    </svg>
-  );
-}
-
-function IconLightbulb({ size = 20, className, ...p }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-      {...p}
-    >
-      <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
-      <path d="M9 18h6M10 22h4" />
-    </svg>
-  );
-}
-
-function IconFileBox({ size = 20, className, ...p }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-      {...p}
-    >
-      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
-  );
-}
-
-function IconArrowUpRight({ size = 12, className, ...p }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-      {...p}
-    >
-      <path d="M7 17 17 7M7 7h10v10" />
-    </svg>
-  );
-}
-
-function IconFilter({ size = 14, className, ...p }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-      {...p}
-    >
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  );
-}
-
 function IconChevronDown({ size = 14, className, ...p }: IconProps) {
   return (
     <svg
@@ -330,70 +199,138 @@ function StatCard({
   );
 }
 
-type InsightTone = "warning" | "danger" | "info" | "success";
+const SHIFT_PIE_COLORS = [
+  "rgb(99 102 241)",
+  "rgb(16 185 129)",
+  "rgb(245 158 11)",
+];
 
-const insightToneClass: Record<
-  InsightTone,
-  string
-> = {
-  warning:
-    "border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300",
-  danger:
-    "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-300",
-  info: "border-blue-200 bg-blue-50 text-blue-600 dark:border-blue-500/40 dark:bg-blue-500/15 dark:text-blue-300",
-  success:
-    "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-300",
-};
-
-function InsightItem({
-  title,
-  desc,
-  icon: Icon,
-  status,
-  statusColor,
-  isActionable,
-  onAction,
+function ShiftSharePie({
+  byShift,
+  total,
+  labelShortener,
 }: {
-  title: string;
-  desc: string;
-  icon: ComponentType<IconProps>;
-  status: string;
-  statusColor: InsightTone;
-  isActionable?: boolean;
-  onAction?: () => void;
+  byShift: { key: string; label: string; count: number }[];
+  total: number;
+  labelShortener: (full: string) => string;
 }) {
-  const tone = insightToneClass[statusColor];
+  const cx = 80;
+  const cy = 80;
+  const r = 68;
+  const strokeClass = "stroke-white dark:stroke-zinc-800";
+
+  if (total <= 0) {
+    return (
+      <p className="py-6 text-center text-sm text-slate-500 dark:text-default-500">
+        Belum ada data shift.
+      </p>
+    );
+  }
+
+  const nonZero = byShift.filter((s) => s.count > 0);
+
+  if (nonZero.length === 0) {
+    return (
+      <p className="py-6 text-center text-sm text-slate-500 dark:text-default-500">
+        Belum ada data shift.
+      </p>
+    );
+  }
+
+  let angleDeg = -90;
+  const slices: ReactNode[] = [];
+
+  if (nonZero.length === 1) {
+    const s = nonZero[0];
+    const color =
+      SHIFT_PIE_COLORS[
+        Math.max(0, byShift.findIndex((x) => x.key === s.key)) %
+          SHIFT_PIE_COLORS.length
+      ];
+    slices.push(
+      <circle
+        key={s.key}
+        cx={cx}
+        cy={cy}
+        r={r}
+        fill={color}
+        className={strokeClass}
+        strokeWidth={2}
+      />,
+    );
+  } else {
+    for (let i = 0; i < byShift.length; i++) {
+      const seg = byShift[i];
+      if (seg.count <= 0) continue;
+      const sweep = (seg.count / total) * 360;
+      const startAngle = angleDeg;
+      const endAngle = angleDeg + sweep;
+      angleDeg = endAngle;
+
+      const radStart = (startAngle * Math.PI) / 180;
+      const radEnd = (endAngle * Math.PI) / 180;
+      const x1 = cx + r * Math.cos(radStart);
+      const y1 = cy + r * Math.sin(radStart);
+      const x2 = cx + r * Math.cos(radEnd);
+      const y2 = cy + r * Math.sin(radEnd);
+      const largeArc = sweep > 180 ? 1 : 0;
+      const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+      slices.push(
+        <path
+          key={seg.key}
+          d={d}
+          fill={SHIFT_PIE_COLORS[i % SHIFT_PIE_COLORS.length]}
+          strokeWidth={2}
+          className={strokeClass}
+        />,
+      );
+    }
+  }
+
   return (
-    <div className="group flex items-start gap-3 rounded-xl border border-slate-200/80 bg-white/60 p-3 transition-colors hover:bg-slate-50 dark:border-default-300/60 dark:bg-default-100/50 dark:hover:bg-default-200/40">
-      <div
-        className={`flex shrink-0 rounded-xl border bg-white p-2.5 shadow-sm dark:bg-default-100 ${tone}`}
-      >
-        <Icon size={20} />
+    <div className="flex flex-col items-stretch gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+      <div className="flex shrink-0 justify-center">
+        <svg
+          viewBox="0 0 160 160"
+          className="h-36 w-36 sm:h-40 sm:w-40"
+          role="img"
+          aria-label="Diagram lingkaran distribusi tamu per shift"
+        >
+          <title>Distribusi persentase tamu per shift</title>
+          {slices}
+        </svg>
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="mb-0.5 flex items-start justify-between gap-2">
-          <h4 className="truncate pr-1 text-sm font-bold text-slate-800 dark:text-foreground">
-            {title}
-          </h4>
-          <span
-            className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone}`}
-          >
-            {status}
-          </span>
-        </div>
-        <p className="mb-2 text-xs leading-relaxed text-slate-500 dark:text-default-500">
-          {desc}
-        </p>
-        {isActionable && onAction ? (
-          <button
-            type="button"
-            className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-primary dark:hover:text-primary/90"
-            onClick={onAction}
-          >
-            Tindak lanjuti <IconArrowUpRight size={12} />
-          </button>
-        ) : null}
-      </div>
+      <ul className="min-w-0 flex-1 space-y-2.5 text-sm">
+        {byShift.map((s, i) => {
+          const share = pct(s.count, total);
+          const swatch = SHIFT_PIE_COLORS[i % SHIFT_PIE_COLORS.length];
+          return (
+            <li
+              key={s.key}
+              className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0 dark:border-default-200/60"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className="h-3 w-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: swatch }}
+                  aria-hidden
+                />
+                <span className="text-slate-700 dark:text-default-200">
+                  {labelShortener(s.label)}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-baseline gap-2 tabular-nums">
+                <span className="text-xs text-slate-500 dark:text-default-500">
+                  {s.count}
+                </span>
+                <span className="min-w-12 text-right font-semibold text-slate-800 dark:text-foreground">
+                  {share}%
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -468,81 +405,9 @@ export function OverviewMetrics({
   const peakGroup = chartGroups[0];
   const digitalPct = pct(dig, total);
   const waReadyPct = pct(t.digitalWithPhone, dig || 1);
-  const waGap =
-    t.digitalWithoutPhone > 0 ? pct(t.digitalWithoutPhone, dig || 1) : 0;
   const peakShare = peakShift
     ? pct(peakShift.count, total)
     : 0;
-
-  const tableGroups = t.byGroup.slice(0, 8);
-
-  const insights: Array<{
-    key: string;
-    title: string;
-    desc: string;
-    icon: ComponentType<IconProps>;
-    status: string;
-    statusColor: InsightTone;
-    isActionable?: boolean;
-  }> = [];
-
-  if (t.digitalWithoutPhone > 0) {
-    insights.push({
-      key: "wa",
-      title: "Lengkapi nomor WA (digital)",
-      desc: `${t.digitalWithoutPhone} tamu undangan digital belum punya nomor WhatsApp (~${waGap}% dari digital). Lengkapi sebelum kirim undangan massal.`,
-      icon: IconAlertCircle,
-      status: "Perlu tindakan",
-      statusColor: "danger",
-      isActionable: true,
-    });
-  }
-
-  if (t.emptyGroups.length > 0) {
-    insights.push({
-      key: "empty",
-      title: "Grup tanpa tamu",
-      desc: `Grup berikut belum ada tamu: ${t.emptyGroups.slice(0, 4).join(", ")}${t.emptyGroups.length > 4 ? ` +${t.emptyGroups.length - 4}` : ""}.`,
-      icon: IconInfo,
-      status: "Info",
-      statusColor: "warning",
-      isActionable: false,
-    });
-  }
-
-  if (peakShift) {
-    insights.push({
-      key: "shift",
-      title: "Distribusi shift",
-      desc: `${peakShift.label} paling padat (${peakShift.count} tamu, ~${peakShare}%). Sesuaikan alokasi queue resepsi & catering.`,
-      icon: IconLightbulb,
-      status: "Tip logistik",
-      statusColor: "success",
-      isActionable: false,
-    });
-  }
-
-  if (phy > dig) {
-    insights.push({
-      key: "phys",
-      title: "Undangan fisik dominan",
-      desc: `${phy} tamu memilih undangan fisik — pastikan stok kartu undangan & meja pengambilan mencukupi.`,
-      icon: IconFileBox,
-      status: "Perhatian",
-      statusColor: "info",
-      isActionable: false,
-    });
-  }
-
-  insights.push({
-    key: "guesttype",
-    title: "Tipe tamu",
-    desc: `Sekalian ${t.byGuestType.sekaliyan} · sendiri ${t.byGuestType.sendiri}${t.byGuestType.unset > 0 ? ` · ${t.byGuestType.unset} belum ditandai` : ""}.`,
-    icon: IconUsers,
-    status: "Ringkasan",
-    statusColor: "info",
-    isActionable: false,
-  });
 
   return (
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-5 overflow-y-auto pb-2 font-sans text-slate-800 dark:text-foreground">
@@ -680,50 +545,6 @@ export function OverviewMetrics({
               </div>
             )}
           </div>
-
-          <div className={`${shell} overflow-hidden`}>
-            <div className="flex flex-col gap-2 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 dark:border-default-200/80">
-              <h3 className="text-base font-bold text-slate-800 dark:text-foreground">
-                Grup tamu utama
-              </h3>
-              <button
-                type="button"
-                className="flex w-fit items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-default-300 dark:text-default-600 dark:hover:bg-default-200/50"
-              >
-                Filter <IconFilter size={14} />
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[320px] text-left text-sm">
-                <thead className="border-b border-slate-100 bg-slate-50 font-medium text-slate-500 dark:border-default-200/80 dark:bg-default-200/40 dark:text-default-500">
-                  <tr>
-                    <th className="py-3 pl-4 pr-3 sm:pl-5">Nama grup</th>
-                    <th className="py-3 px-3">Jumlah tamu</th>
-                    <th className="py-3 pr-4 text-right sm:pr-5">% dari total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableGroups.map((row) => {
-                    const share = pct(row.count, total);
-                    return (
-                      <tr
-                        key={row.name}
-                        className="border-b border-slate-50 transition-colors hover:bg-slate-50 dark:border-default-200/40 dark:hover:bg-default-200/30"
-                      >
-                        <td className="py-3 pl-4 pr-3 font-semibold text-slate-800 sm:pl-5 dark:text-foreground">
-                          {row.name}
-                        </td>
-                        <td className="py-3 px-3 tabular-nums">{row.count}</td>
-                        <td className="py-3 pr-4 text-right tabular-nums text-slate-600 sm:pr-5 dark:text-default-400">
-                          {share}%
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
 
         <div
@@ -731,27 +552,18 @@ export function OverviewMetrics({
         >
           <div className="border-b border-slate-100 p-4 dark:border-default-200/80 sm:p-5">
             <h3 className="text-base font-bold text-slate-800 dark:text-foreground">
-              Smart Insights
+              Distribusi shift
             </h3>
             <p className="mt-1 text-xs text-slate-500 dark:text-default-500">
-              Analisis dan rekomendasi otomatis
+              Persentase tamu per sesi undangan
             </p>
           </div>
-          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-            {insights.map((item) => (
-              <InsightItem
-                key={item.key}
-                title={item.title}
-                desc={item.desc}
-                icon={item.icon}
-                status={item.status}
-                statusColor={item.statusColor}
-                isActionable={item.isActionable}
-                onAction={
-                  item.key === "wa" ? onAddGuest : undefined
-                }
-              />
-            ))}
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+            <ShiftSharePie
+              byShift={t.byShift}
+              total={total}
+              labelShortener={shortShiftLabel}
+            />
           </div>
         </div>
       </div>
