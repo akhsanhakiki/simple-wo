@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { eq } from "drizzle-orm";
 import type { GuestOverviewStats } from "../../../lib/guest-overview-stats";
 import { db } from "../../../lib/db";
 import { guestGroups, guests } from "../../../lib/db/schema";
@@ -13,8 +14,14 @@ function invitationTimeToIso(
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export const GET: APIRoute = async () => {
+export const GET: APIRoute = async ({ request }) => {
   try {
+    const url = new URL(request.url);
+    const location = (url.searchParams.get("location") ?? "").trim();
+    const locationWhere = location
+      ? eq(guests.weddingLocation, location)
+      : undefined;
+
     const rows = await db
       .select({
         weddingLocation: guests.weddingLocation,
@@ -24,7 +31,8 @@ export const GET: APIRoute = async () => {
         invitationTime: guests.invitationTime,
         phone: guests.phone,
       })
-      .from(guests);
+      .from(guests)
+      .where(locationWhere);
 
     const registeredGroups = await db
       .select({ name: guestGroups.name })
@@ -102,6 +110,12 @@ export const GET: APIRoute = async () => {
       .map((g) => g.name)
       .filter((name) => (countsForRegistered.get(name) ?? 0) === 0);
 
+    const registeredGroupCount = location
+      ? registeredGroups.filter(
+          (g) => (countsForRegistered.get(g.name) ?? 0) > 0,
+        ).length
+      : registeredGroups.length;
+
     const payload: GuestOverviewStats = {
       total,
       byLocation,
@@ -117,7 +131,7 @@ export const GET: APIRoute = async () => {
       },
       byGroup,
       byShift,
-      registeredGroupCount: registeredGroups.length,
+      registeredGroupCount,
       emptyGroups,
       digitalWithPhone,
       digitalWithoutPhone,

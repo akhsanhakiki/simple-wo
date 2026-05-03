@@ -1548,17 +1548,17 @@ export default function GuestManager() {
             <div className="flex min-w-0 justify-center justify-self-center px-1">
               {showAdminUI ? (
                 <nav
-                  className="mx-auto flex w-full max-w-md flex-nowrap gap-0.5 overflow-x-auto rounded-lg bg-default-100/80 p-1 dark:bg-default-100/40"
+                  className="mx-auto flex w-full max-w-md flex-nowrap gap-1 overflow-x-auto sm:gap-2"
                   aria-label="Main navigation"
                 >
                   <button
                     type="button"
                     onClick={() => setActiveTab("add")}
                     aria-current={activeTab === "add" ? "page" : undefined}
-                    className={`min-w-0 shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    className={`min-w-0 shrink-0 border-b-2 px-2.5 py-1.5 text-sm font-medium transition-colors sm:px-3 ${
                       activeTab === "add"
-                        ? "bg-white text-foreground shadow-sm dark:bg-default-200"
-                        : "text-default-600 hover:text-foreground"
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-default-600 hover:border-default-300 hover:text-foreground dark:hover:border-default-500"
                     }`}
                   >
                     Metrik
@@ -1567,10 +1567,10 @@ export default function GuestManager() {
                     type="button"
                     onClick={() => setActiveTab("list")}
                     aria-current={activeTab === "list" ? "page" : undefined}
-                    className={`min-w-0 shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    className={`min-w-0 shrink-0 border-b-2 px-2.5 py-1.5 text-sm font-medium transition-colors sm:px-3 ${
                       activeTab === "list"
-                        ? "bg-white text-foreground shadow-sm dark:bg-default-200"
-                        : "text-default-600 hover:text-foreground"
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-default-600 hover:border-default-300 hover:text-foreground dark:hover:border-default-500"
                     }`}
                   >
                     Guests
@@ -1579,10 +1579,10 @@ export default function GuestManager() {
                     type="button"
                     onClick={() => setActiveTab("groups")}
                     aria-current={activeTab === "groups" ? "page" : undefined}
-                    className={`min-w-0 shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    className={`min-w-0 shrink-0 border-b-2 px-2.5 py-1.5 text-sm font-medium transition-colors sm:px-3 ${
                       activeTab === "groups"
-                        ? "bg-white text-foreground shadow-sm dark:bg-default-200"
-                        : "text-default-600 hover:text-foreground"
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-default-600 hover:border-default-300 hover:text-foreground dark:hover:border-default-500"
                     }`}
                   >
                     Group
