@@ -22,3 +22,11 @@ export function getShiftLabelFromInvitationTime(iso: string | null): string {
   const key = getShiftKeyFromTime(iso);
   return SHIFT_OPTIONS.find((s) => s.value === key)?.label ?? "—";
 }
+
+/** Time range only, e.g. "10.00 - 11.00 WIB" (no shift label). */
+export function getShiftTimeRangeFromInvitationTime(iso: string | null): string {
+  const label = getShiftLabelFromInvitationTime(iso);
+  if (label === "—") return label;
+  const match = label.match(/:\s*(.+)$/);
+  return match ? `${match[1]} WIB` : label;
+}

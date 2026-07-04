@@ -33,6 +33,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 
 import type { GuestOverviewStats } from "../lib/guest-overview-stats";
@@ -41,6 +42,10 @@ import {
   getShiftLabelFromInvitationTime,
   SHIFT_OPTIONS,
 } from "../lib/guest-shift";
+import {
+  buildDigitalInviteMessage as buildWaInviteMessage,
+  DEFAULT_WA_INVITE_TEMPLATE,
+} from "../lib/wa-invite";
 import { OverviewMetrics } from "./OverviewMetrics";
 
 const EmojiPickerLazy = lazy(() => import("emoji-picker-react"));
@@ -54,6 +59,61 @@ const GUEST_TYPE_LABELS: Record<string, string> = {
   sekaliyan: "Sekaliyan",
   sendiri: "Sendiri",
 };
+
+function normalizeGroupFilterKeys(
+  keys: string | number | (string | number)[] | null | undefined,
+): string[] {
+  if (keys == null) return [];
+  if (Array.isArray(keys)) return keys.map(String);
+  return [String(keys)];
+}
+
+function appendGuestListFilters(
+  params: URLSearchParams,
+  filters: {
+    search?: string;
+    locationFilter: string;
+    invitationTypeFilter: string;
+    guestTypeFilter: string;
+    groupFilter: string[];
+  },
+) {
+  const {
+    search,
+    locationFilter,
+    invitationTypeFilter,
+    guestTypeFilter,
+    groupFilter,
+  } = filters;
+  if (search?.trim()) params.set("search", search.trim());
+  if (locationFilter && locationFilter !== "all")
+    params.set("location", locationFilter);
+  if (invitationTypeFilter && invitationTypeFilter !== "all")
+    params.set("invitationType", invitationTypeFilter);
+  if (guestTypeFilter && guestTypeFilter !== "all")
+    params.set("guestType", guestTypeFilter);
+  for (const group of normalizeGroupFilterKeys(groupFilter)) {
+    params.append("guestGroup", group);
+  }
+}
+
+function GroupFilterSelectValue({
+  defaultChildren,
+  isPlaceholder,
+  state,
+}: {
+  defaultChildren: ReactNode;
+  isPlaceholder: boolean;
+  state: { selectedItems: { textValue?: string }[] };
+}) {
+  if (isPlaceholder || state.selectedItems.length === 0) {
+    return defaultChildren;
+  }
+  if (state.selectedItems.length === 1) {
+    return state.selectedItems[0]?.textValue ?? defaultChildren;
+  }
+  return `${state.selectedItems.length} grup dipilih`;
+}
 
 type Guest = {
   id: number;
@@ -100,7 +160,7 @@ function toDatetimeLocal(iso: string | null): string {
 }
 
 const DEFAULT_INVITATION_TIME: Record<string, string> = {
-  Semarang: "2026-07-25T00:00",
+  Semarang: "2026-07-26T00:00",
   Magetan: "2026-08-01T00:00",
 };
 
@@ -141,37 +201,8 @@ function clearAdminCookie(): void {
   document.cookie = `${ADMIN_COOKIE_NAME}=; Path=/; Max-Age=0`;
 }
 
-/** Default WhatsApp body; use {{nama}}, {{lokasi}}, {{shift}}, {{tamu}}, {{undanganDigital}}. */
-const DEFAULT_WA_INVITE_TEMPLATE = `Assalamualaikum warahmatullahi wabarakatuh,
-
-Yth. {{nama}},
-
-Dengan hormat, kami mengundang Bapak/Ibu/Saudara/i untuk hadir pada acara pernikahan kami.
-
-Lokasi acara: {{lokasi}}
-Waktu (sesi undangan): {{shift}}
-Undangan untuk: {{tamu}}{{undanganDigital}}
-
-Kehadiran Bapak/Ibu/Saudara/i akan melengkapi sukacita kami.
-
-Wassalamualaikum warahmatullahi wabarakatuh`;
-
 function buildDigitalInviteMessage(g: Guest, template: string): string {
-  const loc = g.weddingLocation?.trim() || "—";
-  const shift = getShiftLabelFromInvitationTime(g.invitationTime);
-  const tamu = GUEST_TYPE_LABELS[g.guestType ?? ""] ?? "—";
-  const rawUrl =
-    typeof import.meta.env.PUBLIC_DIGITAL_INVITATION_URL === "string"
-      ? import.meta.env.PUBLIC_DIGITAL_INVITATION_URL.trim()
-      : "";
-  const undanganDigital = rawUrl ? `\n\nUndangan digital: ${rawUrl}` : "";
-  const tpl = template.trim() === "" ? DEFAULT_WA_INVITE_TEMPLATE : template;
-  return tpl
-    .replaceAll("{{nama}}", g.name.trim())
-    .replaceAll("{{lokasi}}", loc)
-    .replaceAll("{{shift}}", shift)
-    .replaceAll("{{tamu}}", tamu)
-    .replaceAll("{{undanganDigital}}", undanganDigital);
+  return buildWaInviteMessage(g, template, GUEST_TYPE_LABELS);
 }
 
 function applyShiftToInvitationTime(
@@ -351,6 +382,9 @@ const WA_TEMPLATE_PLACEHOLDER_CHIPS: {
   label: string;
   snippet: string;
 }[] = [
+  { id: "jadwal", label: "jadwal", snippet: "{{jadwalAcara}}" },
+  { id: "tempat", label: "tempat", snippet: "{{detailTempat}}" },
+  { id: "url", label: "url", snippet: "{{urlUndangan}}" },
   { id: "nama", label: "nama", snippet: "{{nama}}" },
   { id: "lokasi", label: "lokasi", snippet: "{{lokasi}}" },
   { id: "shift", label: "shift", snippet: "{{shift}}" },
@@ -440,7 +474,7 @@ export default function GuestManager() {
   const [invitationTypeFilter, setInvitationTypeFilter] =
     useState<string>("all");
   const [guestTypeFilter, setGuestTypeFilter] = useState<string>("all");
-  const [groupFilter, setGroupFilter] = useState<string>("");
+  const [groupFilter, setGroupFilter] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [activeTab, setActiveTab] = useState<string>(() =>
@@ -604,15 +638,13 @@ export default function GuestManager() {
       page: String(page),
       limit: String(limit),
     });
-    if (searchDebounced.trim()) params.set("search", searchDebounced.trim());
-    if (locationFilter && locationFilter !== "all")
-      params.set("location", locationFilter);
-    if (invitationTypeFilter && invitationTypeFilter !== "all")
-      params.set("invitationType", invitationTypeFilter);
-    if (guestTypeFilter && guestTypeFilter !== "all")
-      params.set("guestType", guestTypeFilter);
-    if (groupFilter && groupFilter !== "all")
-      params.set("guestGroup", groupFilter);
+    appendGuestListFilters(params, {
+      search: searchDebounced,
+      locationFilter,
+      invitationTypeFilter,
+      guestTypeFilter,
+      groupFilter,
+    });
     try {
       const res = await fetch(`/api/guests?${params}`);
       if (!res.ok) throw new Error("Failed to load guests");
@@ -723,13 +755,13 @@ export default function GuestManager() {
     setExportPdfLoading(true);
     try {
       const params = new URLSearchParams();
-      if (searchDebounced.trim()) params.set("search", searchDebounced.trim());
-      if (locationFilter && locationFilter !== "all")
-        params.set("location", locationFilter);
-      if (invitationTypeFilter && invitationTypeFilter !== "all")
-        params.set("invitationType", invitationTypeFilter);
-      if (guestTypeFilter && guestTypeFilter !== "all")
-        params.set("guestType", guestTypeFilter);
+      appendGuestListFilters(params, {
+        search: searchDebounced,
+        locationFilter,
+        invitationTypeFilter,
+        guestTypeFilter,
+        groupFilter,
+      });
       const res = await fetch(`/api/guests/export?${params}`);
       if (!res.ok) throw new Error("Export failed");
       const json = (await res.json()) as { data: Guest[] };
@@ -775,6 +807,7 @@ export default function GuestManager() {
         guestTypeFilter && guestTypeFilter !== "all"
           ? GUEST_TYPE_LABELS[guestTypeFilter]
           : null,
+        groupFilter.length > 0 ? groupFilter.join(", ") : null,
       ]
         .filter(Boolean)
         .join(" · ");
@@ -786,7 +819,7 @@ export default function GuestManager() {
     } finally {
       setExportPdfLoading(false);
     }
-  }, [searchDebounced, locationFilter, invitationTypeFilter, guestTypeFilter]);
+  }, [searchDebounced, locationFilter, invitationTypeFilter, guestTypeFilter, groupFilter]);
 
   const closeEditModal = useCallback(() => {
     resetForm();
@@ -1758,8 +1791,9 @@ export default function GuestManager() {
                     </Card>
                   ) : null}
                   <div className="shrink-0 overflow-hidden bg-linear-to-br from-default-50 to-default-100 pb-2 -mx-4 px-4">
-                    {/* Mobile: stacked layout */}
-                    <div className="flex flex-col gap-2 sm:hidden">
+                    {/* Mobile: stacked layout — mount only on small screens so Select popovers are not duplicated */}
+                    {!isDesktop && (
+                    <div className="flex flex-col gap-2">
                       <div className="flex flex-row items-center gap-2">
                         <Select
                           className="min-w-0 flex-1"
@@ -1838,26 +1872,23 @@ export default function GuestManager() {
                         </Select>
                         <Select
                           className="min-w-0 flex-1"
-                          placeholder="Grup tamu"
+                          placeholder="Semua Grup"
                           variant="secondary"
-                          value={groupFilter === "" ? "all" : groupFilter}
-                          onChange={(key) =>
-                            setGroupFilter(
-                              key === "all" || key === null ? "" : String(key),
-                            )
+                          selectionMode="multiple"
+                          value={groupFilter}
+                          onChange={(keys) =>
+                            setGroupFilter(normalizeGroupFilterKeys(keys))
                           }
                         >
                           <Label className="sr-only">Grup tamu</Label>
-                          <Select.Trigger>
-                            <Select.Value />
+                          <Select.Trigger className="max-w-full">
+                            <Select.Value>
+                              {(props) => <GroupFilterSelectValue {...props} />}
+                            </Select.Value>
                             <Select.Indicator />
                           </Select.Trigger>
                           <Select.Popover>
-                            <ListBox>
-                              <ListBox.Item id="all" textValue="Semua grup">
-                                <span className="text-sm">Semua Grup</span>
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
+                            <ListBox selectionMode="multiple">
                               {guestGroupNames.map((name) => (
                                 <ListBox.Item
                                   key={name}
@@ -1917,8 +1948,10 @@ export default function GuestManager() {
                         </Button>
                       ) : null}
                     </div>
+                    )}
                     {/* Desktop: one line — search + location + type + total */}
-                    <div className="hidden sm:flex sm:flex-row sm:items-center sm:gap-3 sm:flex-wrap">
+                    {isDesktop && (
+                    <div className="flex flex-row items-center gap-3 flex-wrap">
                       <TextField
                         className="min-w-0 flex-1 sm:max-w-[220px]"
                         name="search"
@@ -2035,26 +2068,23 @@ export default function GuestManager() {
                       </Select>
                       <Select
                         className="w-1/2 sm:w-[160px] shrink-0"
-                        placeholder="Grup tamu"
+                        placeholder="Semua Grup"
                         variant="secondary"
-                        value={groupFilter === "" ? "all" : groupFilter}
-                        onChange={(key) =>
-                          setGroupFilter(
-                            key === "all" || key === null ? "" : String(key),
-                          )
+                        selectionMode="multiple"
+                        value={groupFilter}
+                        onChange={(keys) =>
+                          setGroupFilter(normalizeGroupFilterKeys(keys))
                         }
                       >
                         <Label className="sr-only">Grup tamu</Label>
-                        <Select.Trigger>
-                          <Select.Value />
+                        <Select.Trigger className="max-w-[160px]">
+                          <Select.Value>
+                            {(props) => <GroupFilterSelectValue {...props} />}
+                          </Select.Value>
                           <Select.Indicator />
                         </Select.Trigger>
                         <Select.Popover>
-                          <ListBox>
-                            <ListBox.Item id="all" textValue="Semua grup">
-                              <span className="text-sm">Semua Grup</span>
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
+                          <ListBox selectionMode="multiple">
                             {guestGroupNames.map((name) => (
                               <ListBox.Item
                                 key={name}
@@ -2113,6 +2143,7 @@ export default function GuestManager() {
                         </Button>
                       ) : null}
                     </div>
+                    )}
                   </div>
                   {totalAll === 0 ? (
                     <Card variant="secondary" className="p-6">
@@ -2190,7 +2221,8 @@ export default function GuestManager() {
                                       <Dropdown.Item id="edit" textValue="Ubah">
                                         <Label>Ubah</Label>
                                       </Dropdown.Item>
-                                      {g.invitationType === "digital" ? (
+                                      {g.invitationType === "digital" &&
+                                      normalizePhoneForWa(g.phone) ? (
                                         <Dropdown.Item
                                           id="whatsapp"
                                           textValue="Kirim undangan WA"
@@ -2313,7 +2345,8 @@ export default function GuestManager() {
                                 {showAdminUI ? (
                                   <td className="py-2 px-3 text-right">
                                     <div className="flex justify-end gap-0.5">
-                                      {g.invitationType === "digital" ? (
+                                      {g.invitationType === "digital" &&
+                                      normalizePhoneForWa(g.phone) ? (
                                         <Button
                                           size="sm"
                                           variant="ghost"
@@ -2886,6 +2919,33 @@ export default function GuestManager() {
                             <ul className="grid grid-cols-1 gap-1.5">
                               <li className="flex gap-2 rounded-md bg-default-100/50 px-2 py-1.5">
                                 <code className="shrink-0 font-mono text-[11px] text-foreground">
+                                  {`{{jadwalAcara}}`}
+                                </code>
+                                <span>
+                                  Jadwal acara (tanggal, akad, resepsi) sesuai
+                                  lokasi tamu
+                                </span>
+                              </li>
+                              <li className="flex gap-2 rounded-md bg-default-100/50 px-2 py-1.5">
+                                <code className="shrink-0 font-mono text-[11px] text-foreground">
+                                  {`{{detailTempat}}`}
+                                </code>
+                                <span>
+                                  Nama dan alamat venue resepsi sesuai lokasi
+                                  tamu
+                                </span>
+                              </li>
+                              <li className="flex gap-2 rounded-md bg-default-100/50 px-2 py-1.5">
+                                <code className="shrink-0 font-mono text-[11px] text-foreground">
+                                  {`{{urlUndangan}}`}
+                                </code>
+                                <span>
+                                  Tautan undangan digital (kosong jika lokasi
+                                  tidak punya URL)
+                                </span>
+                              </li>
+                              <li className="flex gap-2 rounded-md bg-default-100/50 px-2 py-1.5">
+                                <code className="shrink-0 font-mono text-[11px] text-foreground">
                                   {`{{nama}}`}
                                 </code>
                                 <span>Nama tamu</span>
@@ -2894,7 +2954,7 @@ export default function GuestManager() {
                                 <code className="shrink-0 font-mono text-[11px] text-foreground">
                                   {`{{lokasi}}`}
                                 </code>
-                                <span>Lokasi resepsi</span>
+                                <span>Lokasi resepsi (Semarang / Magetan)</span>
                               </li>
                               <li className="flex gap-2 rounded-md bg-default-100/50 px-2 py-1.5">
                                 <code className="shrink-0 font-mono text-[11px] text-foreground">
@@ -2913,11 +2973,8 @@ export default function GuestManager() {
                                   {`{{undanganDigital}}`}
                                 </code>
                                 <span>
-                                  Blok tautan dari{" "}
-                                  <code className="rounded bg-default-200/60 px-1 font-mono text-[10px]">
-                                    PUBLIC_DIGITAL_INVITATION_URL
-                                  </code>{" "}
-                                  (kosong jika tidak diatur)
+                                  Blok tautan lama (kompatibilitas template
+                                  sebelumnya)
                                 </span>
                               </li>
                             </ul>

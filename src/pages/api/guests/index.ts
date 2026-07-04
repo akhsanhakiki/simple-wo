@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { and, count, eq, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../../../lib/db';
 import { guestGroups, guests } from '../../../lib/db/schema';
 
@@ -20,7 +20,10 @@ export const GET: APIRoute = async ({ request }) => {
 		const search = (url.searchParams.get('search') ?? '').trim();
 		const location = (url.searchParams.get('location') ?? '').trim();
 		const invitationType = (url.searchParams.get('invitationType') ?? '').trim();
-		const guestGroup = (url.searchParams.get('guestGroup') ?? '').trim();
+		const selectedGuestGroups = url.searchParams
+			.getAll('guestGroup')
+			.map((g) => g.trim())
+			.filter(Boolean);
 		const guestType = (url.searchParams.get('guestType') ?? '').trim();
 
 		const conditions = [];
@@ -36,8 +39,8 @@ export const GET: APIRoute = async ({ request }) => {
 		if (invitationType) {
 			conditions.push(eq(guests.invitationType, invitationType));
 		}
-		if (guestGroup) {
-			conditions.push(eq(guests.guestGroup, guestGroup));
+		if (selectedGuestGroups.length > 0) {
+			conditions.push(inArray(guests.guestGroup, selectedGuestGroups));
 		}
 		if (guestType === 'sekaliyan' || guestType === 'sendiri') {
 			conditions.push(eq(guests.guestType, guestType));
