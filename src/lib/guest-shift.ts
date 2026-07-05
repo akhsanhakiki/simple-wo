@@ -1,9 +1,9 @@
 /** Shift bucketing for invitation times (matches GuestManager defaults). */
 
 export const SHIFT_OPTIONS = [
-  { value: "shift1", label: "Shift 1: 10.00 - 11.00", startTime: "10:00" },
-  { value: "shift2", label: "Shift 2: 11.00 - 12.30", startTime: "11:00" },
-  { value: "shift3", label: "Shift 3: 12.30 - 13.00", startTime: "12:30" },
+  { value: "shift1", label: "Shift 1: 09.30 - 11.00", startTime: "09:30" },
+  { value: "shift2", label: "Shift 2: 10.30 - 12.00", startTime: "10:30" },
+  { value: "shift3", label: "Shift 3: 11.30 - 13.00", startTime: "11:30" },
 ] as const;
 
 export function getShiftKeyFromTime(iso: string | null): string {
@@ -12,9 +12,9 @@ export function getShiftKeyFromTime(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return SHIFT_OPTIONS[0].value;
   const h = d.getHours();
   const m = d.getMinutes();
-  if (h === 10 && m === 0) return "shift1";
-  if (h === 11 && m === 0) return "shift2";
-  if (h === 12 && m === 30) return "shift3";
+  if (h === 9 && m === 30) return "shift1";
+  if (h === 10 && m === 30) return "shift2";
+  if (h === 11 && m === 30) return "shift3";
   return SHIFT_OPTIONS[0].value;
 }
 
@@ -23,7 +23,7 @@ export function getShiftLabelFromInvitationTime(iso: string | null): string {
   return SHIFT_OPTIONS.find((s) => s.value === key)?.label ?? "—";
 }
 
-/** Time range only, e.g. "10.00 - 11.00 WIB" (no shift label). */
+/** Time range only, e.g. "09.30 - 11.00 WIB" (no shift label). */
 export function getShiftTimeRangeFromInvitationTime(iso: string | null): string {
   const label = getShiftLabelFromInvitationTime(iso);
   if (label === "—") return label;

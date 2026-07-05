@@ -215,7 +215,7 @@ function applyShiftToInvitationTime(
   const d = base ? new Date(base) : new Date();
   const fallback = Number.isNaN(d.getTime()) ? new Date() : d;
   const opt = SHIFT_OPTIONS.find((s) => s.value === shiftKey);
-  const [hours, minutes] = (opt?.startTime ?? "10:00").split(":").map(Number);
+  const [hours, minutes] = (opt?.startTime ?? "09:30").split(":").map(Number);
   fallback.setHours(hours, minutes, 0, 0);
   return toDatetimeLocal(fallback.toISOString());
 }
