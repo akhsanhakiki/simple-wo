@@ -2389,88 +2389,100 @@ export default function GuestManager() {
                         </table>
                       </div>
                       {/* Desktop: pagination — compact pill, matches reference */}
-                      {isDesktop && totalPages > 1 ? (
-                        <div className="hidden sm:flex shrink-0 items-center justify-center py-2">
-                          <nav
-                            className="inline-flex h-8 items-center overflow-hidden rounded-full bg-default-100 shadow-md"
-                            aria-label="Navigasi halaman"
+                      {isDesktop && totalFiltered > 0 ? (
+                        <div className="relative hidden sm:flex shrink-0 items-center justify-center py-2">
+                          {totalPages > 1 ? (
+                            <nav
+                              className="inline-flex h-8 items-center overflow-hidden rounded-full bg-default-100 shadow-md"
+                              aria-label="Navigasi halaman"
+                            >
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                isIconOnly
+                                className="h-8 min-w-8 rounded-l-full rounded-r-none text-default-400 hover:bg-default-200/40 hover:text-foreground disabled:opacity-40"
+                                isDisabled={desktopPage <= 1}
+                                onPress={() =>
+                                  setDesktopPage((p) => Math.max(1, p - 1))
+                                }
+                                aria-label="Halaman sebelumnya"
+                              >
+                                <span
+                                  className="text-base leading-none"
+                                  aria-hidden
+                                >
+                                  ‹
+                                </span>
+                              </Button>
+                              <div className="flex h-8 items-center">
+                                {paginationPages.map((item, idx) =>
+                                  item === "ellipsis" ? (
+                                    <span
+                                      key={`ellipsis-${idx}`}
+                                      className="flex h-8 min-w-8 items-center justify-center text-xs text-default-600"
+                                      aria-hidden
+                                    >
+                                      …
+                                    </span>
+                                  ) : (
+                                    <Button
+                                      key={item}
+                                      size="sm"
+                                      variant={
+                                        desktopPage === item
+                                          ? "primary"
+                                          : "ghost"
+                                      }
+                                      className={
+                                        desktopPage === item
+                                          ? "h-8 min-w-8 rounded-md font-medium text-primary-foreground"
+                                          : "h-8 min-w-8 rounded-none text-xs text-default-700 hover:bg-default-200/40"
+                                      }
+                                      onPress={() => setDesktopPage(item)}
+                                      aria-label={
+                                        desktopPage === item
+                                          ? `Halaman ${item}, halaman saat ini`
+                                          : `Halaman ${item}`
+                                      }
+                                      aria-current={
+                                        desktopPage === item
+                                          ? "page"
+                                          : undefined
+                                      }
+                                    >
+                                      {item}
+                                    </Button>
+                                  ),
+                                )}
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                isIconOnly
+                                className="h-8 min-w-8 rounded-r-full rounded-l-none text-default-400 hover:bg-default-200/40 hover:text-foreground disabled:opacity-40"
+                                isDisabled={desktopPage >= totalPages}
+                                onPress={() =>
+                                  setDesktopPage((p) =>
+                                    Math.min(totalPages, p + 1),
+                                  )
+                                }
+                                aria-label="Halaman berikutnya"
+                              >
+                                <span
+                                  className="text-base leading-none"
+                                  aria-hidden
+                                >
+                                  ›
+                                </span>
+                              </Button>
+                            </nav>
+                          ) : null}
+                          <p
+                            className="absolute right-0 text-default-500 text-xs"
+                            aria-live="polite"
                           >
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              isIconOnly
-                              className="h-8 min-w-8 rounded-l-full rounded-r-none text-default-400 hover:bg-default-200/40 hover:text-foreground disabled:opacity-40"
-                              isDisabled={desktopPage <= 1}
-                              onPress={() =>
-                                setDesktopPage((p) => Math.max(1, p - 1))
-                              }
-                              aria-label="Halaman sebelumnya"
-                            >
-                              <span
-                                className="text-base leading-none"
-                                aria-hidden
-                              >
-                                ‹
-                              </span>
-                            </Button>
-                            <div className="flex h-8 items-center">
-                              {paginationPages.map((item, idx) =>
-                                item === "ellipsis" ? (
-                                  <span
-                                    key={`ellipsis-${idx}`}
-                                    className="flex h-8 min-w-8 items-center justify-center text-xs text-default-600"
-                                    aria-hidden
-                                  >
-                                    …
-                                  </span>
-                                ) : (
-                                  <Button
-                                    key={item}
-                                    size="sm"
-                                    variant={
-                                      desktopPage === item ? "primary" : "ghost"
-                                    }
-                                    className={
-                                      desktopPage === item
-                                        ? "h-8 min-w-8 rounded-md font-medium text-primary-foreground"
-                                        : "h-8 min-w-8 rounded-none text-xs text-default-700 hover:bg-default-200/40"
-                                    }
-                                    onPress={() => setDesktopPage(item)}
-                                    aria-label={
-                                      desktopPage === item
-                                        ? `Halaman ${item}, halaman saat ini`
-                                        : `Halaman ${item}`
-                                    }
-                                    aria-current={
-                                      desktopPage === item ? "page" : undefined
-                                    }
-                                  >
-                                    {item}
-                                  </Button>
-                                ),
-                              )}
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              isIconOnly
-                              className="h-8 min-w-8 rounded-r-full rounded-l-none text-default-400 hover:bg-default-200/40 hover:text-foreground disabled:opacity-40"
-                              isDisabled={desktopPage >= totalPages}
-                              onPress={() =>
-                                setDesktopPage((p) =>
-                                  Math.min(totalPages, p + 1),
-                                )
-                              }
-                              aria-label="Halaman berikutnya"
-                            >
-                              <span
-                                className="text-base leading-none"
-                                aria-hidden
-                              >
-                                ›
-                              </span>
-                            </Button>
-                          </nav>
+                            Total: {totalFiltered} tamu undangan
+                          </p>
                         </div>
                       ) : null}
                     </>
